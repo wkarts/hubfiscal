@@ -1,36 +1,87 @@
 name: CI
+
 on:
   pull_request:
   push:
     branches: [main]
+
 permissions:
   contents: read
+
 jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validar contrato de versão
+        run: ./scripts/check-version.sh
+      - name: Validar scripts
+        run: |
+          python3 -m py_compile scripts/set-version.py
+          bash -n scripts/*.sh
+          bash -n deploy/cloudpanel/*.sh
+      - name: Validar Compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose --env-file deploy/cloudpanel/.env.example -f deploy/cloudpanel/compose.yaml config --quiet
+      - name: Validar empacotamento da release
+        run: ./scripts/package.sh /tmp/hubfiscal-release-assets
+
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: '3.13', cache: pip }
+        with:
+          python-version: '3.13'
+          cache: pip
       - run: python -m pip install --upgrade pip setuptools wheel
       - run: python -m pip install -e 'apps/api[dev]'
       - run: ruff check apps/api/src apps/api/tests
       - run: python -m compileall -q apps/api/src
       - run: pytest -q
+
   frontend:
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: apps/web } }
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '24' }
+        with:
+          node-version: '24'
       - run: npm install
       - run: npm run build
+
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
-      - run: docker compose config >/dev/null
+      - run: docker compose config --quiet
       - run: docker build -f apps/api/Dockerfile -t hubfiscal-api:ci .
       - run: docker build -f apps/web/Dockerfile -t hubfiscal-web:ci .
+      - run: |
+          docker build \
+            -f apps/api/Dockerfile.production \
+            --build-arg API_BASE_IMAGE=hubfiscal-api:ci \
+            --build-arg APP_VERSION="$(cat VERSION)" \
+            --build-arg BUILD_SHA="${GITHUB_SHA}" \
+            --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --build-arg BUILD_REF="ci" \
+            -t hubfiscal-api:production-ci .
+      - run: |
+          docker build \
+            -f apps/web/Dockerfile.production \
+            --build-arg WEB_BASE_IMAGE=hubfiscal-web:ci \
+            --build-arg APP_VERSION="$(cat VERSION)" \
+            --build-arg BUILD_SHA="${GITHUB_SHA}" \
+            --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -t hubfiscal-web:production-ci .
