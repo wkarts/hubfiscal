@@ -66,21 +66,29 @@ jobs:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
       - run: docker compose config --quiet
-      - run: docker build -f apps/api/Dockerfile -t hubfiscal-api:ci .
-      - run: docker build -f apps/web/Dockerfile -t hubfiscal-web:ci .
-      - run: |
+      - name: Build imagens de desenvolvimento
+        run: |
+          docker build -f apps/api/Dockerfile -t hubfiscal-api:ci .
+          docker build -f apps/web/Dockerfile -t hubfiscal-web:ci .
+      - name: Build imagens-base reais
+        run: |
+          docker build -f docker/base/api-base.Dockerfile -t hubfiscal-api-base:ci .
+          docker build -f docker/base/web-base.Dockerfile -t hubfiscal-web-base:ci .
+      - name: Build API de produção
+        run: |
           docker build \
             -f apps/api/Dockerfile.production \
-            --build-arg API_BASE_IMAGE=hubfiscal-api:ci \
+            --build-arg API_BASE_IMAGE=hubfiscal-api-base:ci \
             --build-arg APP_VERSION="$(cat VERSION)" \
             --build-arg BUILD_SHA="${GITHUB_SHA}" \
             --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             --build-arg BUILD_REF="ci" \
             -t hubfiscal-api:production-ci .
-      - run: |
+      - name: Build Web de produção
+        run: |
           docker build \
             -f apps/web/Dockerfile.production \
-            --build-arg WEB_BASE_IMAGE=hubfiscal-web:ci \
+            --build-arg WEB_BASE_IMAGE=hubfiscal-web-base:ci \
             --build-arg APP_VERSION="$(cat VERSION)" \
             --build-arg BUILD_SHA="${GITHUB_SHA}" \
             --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
