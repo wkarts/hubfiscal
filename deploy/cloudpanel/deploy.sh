@@ -24,10 +24,28 @@ if [[ -f "$VERSION_FILE" ]]; then
   PREVIOUS_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
 fi
 
+backup_database() {
+  [[ -f "$ENV_FILE" ]] || return 0
+  local data_root backup_dir backup_file
+  data_root="$(sed -n 's/^HUBFISCAL_DATA_ROOT=//p' "$ENV_FILE" | tail -n1)"
+  [[ -n "$data_root" ]] || return 0
+  backup_dir="$data_root/backups"
+  backup_file="$backup_dir/postgres-before-${PREVIOUS_VERSION:-unknown}-$(date -u +'%Y%m%dT%H%M%SZ').sql.gz"
+  mkdir -p "$backup_dir"
+
+  if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps --status running hubfiscal-postgres | grep -q hubfiscal-postgres; then
+    echo "Gerando backup preventivo em $backup_file..."
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T hubfiscal-postgres \
+      sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | gzip -9 > "$backup_file"
+    test -s "$backup_file"
+  fi
+}
+
 if [[ -f "$PENDING_ENV" ]]; then
   if [[ -f "$ENV_FILE" ]]; then
     cp "$ENV_FILE" "$ROLLBACK_ENV"
     chmod 600 "$ROLLBACK_ENV"
+    backup_database
   fi
   mv "$PENDING_ENV" "$ENV_FILE"
 fi
@@ -48,7 +66,7 @@ rollback() {
     echo "Rollback indisponível: não existe ambiente anterior." >&2
     return 1
   fi
-  echo "Restaurando versão anterior ${PREVIOUS_VERSION:-desconhecida}..."
+  echo "Restaurando containers da versão anterior ${PREVIOUS_VERSION:-desconhecida}..."
   cp "$ROLLBACK_ENV" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   compose pull
