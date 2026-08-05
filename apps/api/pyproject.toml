@@ -28,7 +28,7 @@ dependencies = [
   "lxml>=6,<7",
   "defusedxml>=0.7,<1",
   "structlog>=25.4,<26",
-  "prometheus-fastapi-instrumentator>=7.1,<8",
+  "prometheus-fastapi-instrumentator>=7.1,<9",
   "orjson>=3.11,<4",
 ]
 
