@@ -1,0 +1,6 @@
+<script setup lang="ts">
+import { reactive, ref } from 'vue'; import { useRouter } from 'vue-router'; import { Boxes } from 'lucide-vue-next'; import { api,errorMessage } from '../api'
+const router=useRouter(); const form=reactive({token:'',name:'',email:'',password:''}); const error=ref(''); const loading=ref(false)
+async function submit(){loading.value=true;error.value='';try{await api.post('/bootstrap/admin',form);router.push('/login')}catch(e){error.value=errorMessage(e)}finally{loading.value=false}}
+</script>
+<template><div class="auth-page"><div class="auth-visual"><div class="auth-brand"><Boxes :size="42"/><div><strong>HUB FISCAL</strong><span>Inicialização segura</span></div></div><h1>Crie o proprietário da plataforma.</h1><p>O token é gerado no arquivo .env e só pode ser usado uma vez.</p></div><form class="auth-card" @submit.prevent="submit"><h2>Administrador inicial</h2><label>Token de bootstrap<input v-model="form.token" required /></label><label>Nome<input v-model="form.name" required /></label><label>E-mail<input v-model="form.email" type="email" required /></label><label>Senha<input v-model="form.password" type="password" minlength="10" required /></label><div v-if="error" class="alert danger">{{ error }}</div><button class="btn primary full" :disabled="loading">Criar administrador</button></form></div></template>

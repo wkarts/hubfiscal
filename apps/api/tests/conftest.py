@@ -1,0 +1,13 @@
+import os
+os.environ.setdefault("HUBFISCAL_SECRET_KEY", "x"*64)
+os.environ.setdefault("HUBFISCAL_ENCRYPTION_KEY", "Q2ZsTG1SS0ttZXJ0cmljLWh1YmZpc2NhbC1rZXk9ISE=")
+os.environ.setdefault("HUBFISCAL_BOOTSTRAP_TOKEN", "bootstrap-test")
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+os.environ.setdefault("DATABASE_URL_SYNC", "postgresql+psycopg://test:test@localhost/test")
+os.environ.setdefault("REDIS_URL", "redis://localhost/0")
+os.environ.setdefault("CELERY_BROKER_URL", "memory://")
+os.environ.setdefault("CELERY_RESULT_BACKEND", "cache+memory://")
+os.environ.setdefault("MINIO_ENDPOINT", "http://localhost:9000")
+os.environ.setdefault("MINIO_ROOT_USER", "test")
+os.environ.setdefault("MINIO_ROOT_PASSWORD", "test")
+os.environ.setdefault("MINIO_BUCKET", "test")

@@ -1,34 +1,25 @@
-# Sistema
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Logs
-*.log
-logs/
-
-# Ambiente
 .env
 .env.*
 !.env.example
-
-# Node/PHP/Python/Rust comuns
-node_modules/
-vendor/
 __pycache__/
-target/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+node_modules/
 dist/
-build/
 coverage/
-
-# IDE
-.vscode/
+htmlcov/
+*.log
+.DS_Store
 .idea/
-
-# Docker local
-docker-compose.override.yml
-
-# Temporarios
-tmp/
-temp/
-*.tmp
+.vscode/
+local-data/
+secrets/
+*.pfx
+*.p12
+*.pem
+*.key
