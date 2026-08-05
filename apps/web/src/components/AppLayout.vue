@@ -75,3 +75,25 @@ const visibleItems = computed(() => items.filter((i) => !i.platform || auth.user
     </div>
   </div>
 </template>
+
+<style scoped>
+.version-info {
+  margin: 8px 10px 2px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce9fb;
+}
+.version-info strong,
+.version-info small {
+  display: block;
+}
+.version-info strong {
+  font-size: 11px;
+}
+.version-info small {
+  margin-top: 3px;
+  color: #8ca4c6;
+  font-size: 9px;
+}
+</style>
