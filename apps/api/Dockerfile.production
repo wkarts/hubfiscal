@@ -1,0 +1,14 @@
+ARG API_BASE_IMAGE=ghcr.io/wkarts/hubfiscal-api-base:py3.13-v1
+FROM ${API_BASE_IMAGE}
+WORKDIR /app
+COPY apps/api/src ./src
+COPY apps/api/alembic ./alembic
+COPY apps/api/alembic.ini ./alembic.ini
+COPY apps/api/pyproject.toml ./pyproject.toml
+COPY apps/api/entrypoint.sh ./entrypoint.sh
+COPY VERSION /app/VERSION
+RUN pip install --no-cache-dir --no-build-isolation --no-deps . && chmod +x /app/entrypoint.sh
+ENV PYTHONPATH=/app/src
+EXPOSE 8080
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["api"]
