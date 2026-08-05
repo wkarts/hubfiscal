@@ -39,3 +39,5 @@ jobs:
           git add --all
           git commit -m "feat: implement complete Hub Fiscal platform"
           git push origin HEAD:feat/plataforma-hub-fiscal-completa
+
+# bootstrap-trigger: 2026-08-05
