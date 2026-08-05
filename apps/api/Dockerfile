@@ -9,7 +9,8 @@ COPY apps/api/alembic.ini ./alembic.ini
 COPY apps/api/tests ./tests
 COPY apps/api/entrypoint.sh ./entrypoint.sh
 COPY VERSION /app/VERSION
-RUN pip install --no-cache-dir --no-build-isolation '.[dev]' && chmod +x /app/entrypoint.sh && useradd --create-home --uid 10001 hubfiscal && chown -R hubfiscal:hubfiscal /app
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    python -m pip install --no-cache-dir --no-build-isolation '.[dev]' && chmod +x /app/entrypoint.sh && useradd --create-home --uid 10001 hubfiscal && chown -R hubfiscal:hubfiscal /app
 USER 10001
 ENV PYTHONPATH=/app/src
 EXPOSE 8080
