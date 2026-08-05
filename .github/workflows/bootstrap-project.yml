@@ -36,7 +36,12 @@ jobs:
           cat .bootstrap/archive.b64.part* | base64 --decode > /tmp/hubfiscal.tar.gz
           tar -xzf /tmp/hubfiscal.tar.gz -C .
           rm -rf .bootstrap
-          rm -f .github/workflows/bootstrap-project.yml
+
+          # O token interno do Actions não pode criar/alterar workflows.
+          # Preserva apenas este bootstrap; os workflows finais serão
+          # publicados em seguida pelo conector GitHub autorizado.
+          git restore .github/workflows
+          git clean -f .github/workflows
 
       - name: Commit complete monorepository
         shell: bash
