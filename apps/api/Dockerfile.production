@@ -1,5 +1,18 @@
 ARG API_BASE_IMAGE=ghcr.io/wkarts/hubfiscal-api-base:py3.13-v1
 FROM ${API_BASE_IMAGE}
+
+ARG APP_VERSION=development
+ARG BUILD_SHA=development
+ARG BUILD_DATE=unknown
+ARG BUILD_REF=local
+
+LABEL org.opencontainers.image.title="Hub Fiscal API" \
+      org.opencontainers.image.description="API e workers da plataforma Hub Fiscal" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${BUILD_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/wkarts/hubfiscal"
+
 WORKDIR /app
 COPY apps/api/src ./src
 COPY apps/api/alembic ./alembic
@@ -12,7 +25,10 @@ RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
     python -m pip install --no-cache-dir --no-build-isolation --no-deps . && \
     chmod +x /app/entrypoint.sh && chown -R hubfiscal:hubfiscal /app
 USER 10001
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app/src \
+    HUBFISCAL_BUILD_SHA=${BUILD_SHA} \
+    HUBFISCAL_BUILD_DATE=${BUILD_DATE} \
+    HUBFISCAL_BUILD_REF=${BUILD_REF}
 EXPOSE 8080
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["api"]

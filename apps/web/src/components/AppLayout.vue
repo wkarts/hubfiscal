@@ -12,6 +12,9 @@ const auth = useAuthStore()
 const route = useRoute()
 const collapsed = ref(false)
 const mobile = ref(false)
+const appVersion = __APP_VERSION__
+const buildSha = __BUILD_SHA__.slice(0, 8)
+const buildDate = __BUILD_DATE__
 const items = [
   { to: '/', label: 'Visão geral', icon: LayoutDashboard },
   { to: '/tenants', label: 'Clientes', icon: Building2, platform: true },
@@ -47,6 +50,10 @@ const visibleItems = computed(() => items.filter((i) => !i.platform || auth.user
       <div class="sidebar-footer">
         <a href="/docs" target="_blank" class="nav-item"><BookOpen :size="19" /><span v-if="!collapsed">Documentação API</span></a>
         <button class="nav-item" @click="auth.logout"><LogOut :size="19" /><span v-if="!collapsed">Sair</span></button>
+        <div v-if="!collapsed" class="version-info" :title="`Build ${buildSha} em ${buildDate}`">
+          <strong>Versão {{ appVersion }}</strong>
+          <small>build {{ buildSha }}</small>
+        </div>
       </div>
     </aside>
     <div class="content-shell">
@@ -68,3 +75,25 @@ const visibleItems = computed(() => items.filter((i) => !i.platform || auth.user
     </div>
   </div>
 </template>
+
+<style scoped>
+.version-info {
+  margin: 8px 10px 2px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce9fb;
+}
+.version-info strong,
+.version-info small {
+  display: block;
+}
+.version-info strong {
+  font-size: 11px;
+}
+.version-info small {
+  margin-top: 3px;
+  color: #8ca4c6;
+  font-size: 9px;
+}
+</style>

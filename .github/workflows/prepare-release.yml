@@ -1,0 +1,138 @@
+name: Preparar release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Tipo de incremento SemVer
+        required: true
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      prerelease:
+        description: Sufixo opcional, por exemplo rc.1
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Calcular e sincronizar versão
+        id: version
+        shell: bash
+        run: |
+          args=(--bump '${{ inputs.bump }}')
+          if [[ -n '${{ inputs.prerelease }}' ]]; then
+            args+=(--prerelease '${{ inputs.prerelease }}')
+          fi
+          version="$(python3 scripts/set-version.py "${args[@]}")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validar contrato de versão
+        run: ./scripts/check-version.sh
+
+      - name: Impedir colisão de tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "A tag $TAG já existe. Incremente VERSION novamente." >&2
+            exit 1
+          fi
+
+      - name: Validar backend
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e 'apps/api[dev]'
+          ruff check apps/api/src apps/api/tests
+          python -m compileall -q apps/api/src
+          pytest -q
+
+      - name: Validar frontend
+        working-directory: apps/web
+        run: |
+          npm install
+          npm run build
+
+      - name: Validar Compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose --env-file deploy/cloudpanel/.env.example -f deploy/cloudpanel/compose.yaml config --quiet
+
+      - name: Criar branch e commit de release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          branch="release/v$VERSION"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "A branch $branch já existe." >&2
+            exit 1
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git switch -c "$branch"
+          git add VERSION .env.example deploy/cloudpanel/.env.example \
+            apps/api/pyproject.toml apps/api/src/hubfiscal/__init__.py apps/web/package.json
+          git commit -m "chore(release): preparar v$VERSION"
+          git push origin "$branch"
+
+      - name: Criar Pull Request de release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          previous_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [[ -n "$previous_tag" ]]; then
+            changes="$(git log --pretty='- %s (%h)' "$previous_tag"..HEAD^ | head -n 100)"
+          else
+            changes="$(git log --pretty='- %s (%h)' HEAD~20..HEAD^ 2>/dev/null || true)"
+          fi
+          cat > /tmp/release-pr.md <<EOF
+          ## Release v$VERSION
+
+          Atualiza e sincroniza o contrato central de versão para **$VERSION**.
+
+          ### Validações executadas
+          - Backend, Ruff, compileall e Pytest
+          - Frontend Vue/TypeScript
+          - Docker Compose local e CloudPanel
+          - Verificação de colisão da tag v$VERSION
+
+          ### Alterações desde a versão anterior
+          $changes
+
+          Após o merge em `main`, o workflow **Release** criará automaticamente a tag, os artefatos, checksums, imagens GHCR multi-arquitetura e a GitHub Release.
+          EOF
+          gh pr create \
+            --base main \
+            --head "release/v$VERSION" \
+            --title "chore(release): Hub Fiscal v$VERSION" \
+            --body-file /tmp/release-pr.md
+
+      - name: Resumo
+        run: |
+          echo "### Release preparada" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Versão: ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag futura: ${{ steps.version.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"

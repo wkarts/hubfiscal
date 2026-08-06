@@ -1,0 +1,239 @@
+name: Deploy CloudPanel
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Tag da imagem; vazio usa VERSION
+        required: false
+        type: string
+      verify_public_url:
+        description: Validar domínio público após o deploy
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  CLOUDPANEL_HOST: ${{ vars.CLOUDPANEL_HOST }}
+  CLOUDPANEL_SSH_PORT: ${{ vars.CLOUDPANEL_SSH_PORT || '22' }}
+  CLOUDPANEL_SSH_USER: ${{ vars.CLOUDPANEL_SSH_USER }}
+  CLOUDPANEL_DEPLOY_PATH: ${{ vars.CLOUDPANEL_DEPLOY_PATH || '/home/cloudpanel/htdocs/hubfiscal' }}
+  CLOUDPANEL_DATA_ROOT: ${{ vars.CLOUDPANEL_DATA_ROOT || '/home/cloudpanel/htdocs/hubfiscal-data' }}
+  HUBFISCAL_DOMAIN: ${{ vars.HUBFISCAL_DOMAIN }}
+  HUBFISCAL_HTTP_PORT: ${{ vars.HUBFISCAL_HTTP_PORT || '8088' }}
+  GHCR_NAMESPACE: ${{ vars.GHCR_NAMESPACE || github.repository_owner }}
+  POSTGRES_DB: ${{ vars.POSTGRES_DB || 'hubfiscal' }}
+  POSTGRES_USER: ${{ vars.POSTGRES_USER || 'hubfiscal' }}
+  RABBITMQ_USER: ${{ vars.RABBITMQ_USER || 'hubfiscal' }}
+  MINIO_USER: ${{ vars.MINIO_USER || 'hubfiscal' }}
+  MINIO_BUCKET: ${{ vars.MINIO_BUCKET || 'hubfiscal-documents' }}
+  HUBFISCAL_LOG_LEVEL: ${{ vars.HUBFISCAL_LOG_LEVEL || 'INFO' }}
+  HUBFISCAL_ACCESS_TOKEN_MINUTES: ${{ vars.HUBFISCAL_ACCESS_TOKEN_MINUTES || '60' }}
+  HUBFISCAL_REFRESH_TOKEN_DAYS: ${{ vars.HUBFISCAL_REFRESH_TOKEN_DAYS || '30' }}
+
+concurrency:
+  group: cloudpanel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    environment:
+      name: cloudpanel-production
+      url: https://${{ vars.HUBFISCAL_DOMAIN }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolver versão
+        id: version
+        shell: bash
+        run: |
+          requested='${{ inputs.image_tag }}'
+          version="${requested:-$(tr -d '[:space:]' < VERSION)}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag de imagem inválida: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validar Variables e Secrets
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.CLOUDPANEL_SSH_PRIVATE_KEY }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          HUBFISCAL_SECRET_KEY: ${{ secrets.HUBFISCAL_SECRET_KEY }}
+          HUBFISCAL_ENCRYPTION_KEY: ${{ secrets.HUBFISCAL_ENCRYPTION_KEY }}
+          HUBFISCAL_BOOTSTRAP_TOKEN: ${{ secrets.HUBFISCAL_BOOTSTRAP_TOKEN }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          MINIO_PASSWORD: ${{ secrets.MINIO_PASSWORD }}
+        shell: bash
+        run: |
+          required=(
+            CLOUDPANEL_HOST CLOUDPANEL_SSH_USER HUBFISCAL_DOMAIN
+            SSH_PRIVATE_KEY GHCR_TOKEN HUBFISCAL_SECRET_KEY HUBFISCAL_ENCRYPTION_KEY
+            HUBFISCAL_BOOTSTRAP_TOKEN POSTGRES_PASSWORD RABBITMQ_PASSWORD MINIO_PASSWORD
+          )
+          failed=0
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Variável/secret obrigatório ausente: $name" >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Gerar ambiente de produção
+        env:
+          IMAGE_TAG: ${{ steps.version.outputs.version }}
+          BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          BUILD_REF: ${{ steps.version.outputs.tag }}
+          HUBFISCAL_SECRET_KEY: ${{ secrets.HUBFISCAL_SECRET_KEY }}
+          HUBFISCAL_ENCRYPTION_KEY: ${{ secrets.HUBFISCAL_ENCRYPTION_KEY }}
+          HUBFISCAL_BOOTSTRAP_TOKEN: ${{ secrets.HUBFISCAL_BOOTSTRAP_TOKEN }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          MINIO_PASSWORD: ${{ secrets.MINIO_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+          from urllib.parse import quote
+
+          def value(name: str) -> str:
+              result = os.environ[name]
+              if "\n" in result or "\r" in result:
+                  raise SystemExit(f"{name} não pode conter quebra de linha")
+              return result
+
+          postgres_password = value("POSTGRES_PASSWORD")
+          rabbitmq_password = value("RABBITMQ_PASSWORD")
+          domain = value("HUBFISCAL_DOMAIN")
+          lines = {
+              "COMPOSE_PROJECT_NAME": "hubfiscal",
+              "GHCR_REGISTRY": "ghcr.io",
+              "GHCR_NAMESPACE": value("GHCR_NAMESPACE"),
+              "HUBFISCAL_IMAGE_TAG": value("IMAGE_TAG"),
+              "HUBFISCAL_DOMAIN": domain,
+              "HUBFISCAL_HTTP_PORT": value("HUBFISCAL_HTTP_PORT"),
+              "HUBFISCAL_DATA_ROOT": value("CLOUDPANEL_DATA_ROOT"),
+              "HUBFISCAL_ENV": "production",
+              "HUBFISCAL_DEBUG": "false",
+              "HUBFISCAL_CORS_ORIGINS": f"https://{domain}",
+              "HUBFISCAL_SECRET_KEY": value("HUBFISCAL_SECRET_KEY"),
+              "HUBFISCAL_ENCRYPTION_KEY": value("HUBFISCAL_ENCRYPTION_KEY"),
+              "HUBFISCAL_BOOTSTRAP_TOKEN": value("HUBFISCAL_BOOTSTRAP_TOKEN"),
+              "HUBFISCAL_ACCESS_TOKEN_MINUTES": value("HUBFISCAL_ACCESS_TOKEN_MINUTES"),
+              "HUBFISCAL_REFRESH_TOKEN_DAYS": value("HUBFISCAL_REFRESH_TOKEN_DAYS"),
+              "HUBFISCAL_LOG_LEVEL": value("HUBFISCAL_LOG_LEVEL"),
+              "HUBFISCAL_BUILD_SHA": value("BUILD_SHA"),
+              "HUBFISCAL_BUILD_DATE": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "HUBFISCAL_BUILD_REF": value("BUILD_REF"),
+              "POSTGRES_DB": value("POSTGRES_DB"),
+              "POSTGRES_USER": value("POSTGRES_USER"),
+              "POSTGRES_PASSWORD": postgres_password,
+              "DATABASE_URL": (
+                  f"postgresql+asyncpg://{quote(value('POSTGRES_USER'), safe='')}:"
+                  f"{quote(postgres_password, safe='')}@hubfiscal-postgres:5432/"
+                  f"{quote(value('POSTGRES_DB'), safe='')}"
+              ),
+              "DATABASE_URL_SYNC": (
+                  f"postgresql+psycopg://{quote(value('POSTGRES_USER'), safe='')}:"
+                  f"{quote(postgres_password, safe='')}@hubfiscal-postgres:5432/"
+                  f"{quote(value('POSTGRES_DB'), safe='')}"
+              ),
+              "REDIS_URL": "redis://hubfiscal-redis:6379/0",
+              "RABBITMQ_DEFAULT_USER": value("RABBITMQ_USER"),
+              "RABBITMQ_DEFAULT_PASS": rabbitmq_password,
+              "CELERY_BROKER_URL": (
+                  f"amqp://{quote(value('RABBITMQ_USER'), safe='')}:"
+                  f"{quote(rabbitmq_password, safe='')}@hubfiscal-rabbitmq:5672//"
+              ),
+              "CELERY_RESULT_BACKEND": "redis://hubfiscal-redis:6379/1",
+              "MINIO_ROOT_USER": value("MINIO_USER"),
+              "MINIO_ROOT_PASSWORD": value("MINIO_PASSWORD"),
+              "MINIO_ENDPOINT": "http://hubfiscal-minio:9000",
+              "MINIO_PUBLIC_ENDPOINT": f"https://{domain}/storage",
+              "MINIO_BUCKET": value("MINIO_BUCKET"),
+              "MINIO_REGION": "us-east-1",
+              "MINIO_SECURE": "false",
+          }
+          Path(".env.new").write_text(
+              "\n".join(f"{key}={val}" for key, val in lines.items()) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          chmod 600 .env.new
+
+      - name: Configurar SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.CLOUDPANEL_SSH_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/hubfiscal-cloudpanel
+          chmod 600 ~/.ssh/hubfiscal-cloudpanel
+          ssh-keyscan -p "$CLOUDPANEL_SSH_PORT" -H "$CLOUDPANEL_HOST" >> ~/.ssh/known_hosts
+
+      - name: Enviar configuração ao CloudPanel
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/hubfiscal-cloudpanel -p "$CLOUDPANEL_SSH_PORT" \
+            "$CLOUDPANEL_SSH_USER@$CLOUDPANEL_HOST" \
+            "mkdir -p '$CLOUDPANEL_DEPLOY_PATH'"
+          scp -i ~/.ssh/hubfiscal-cloudpanel -P "$CLOUDPANEL_SSH_PORT" \
+            deploy/cloudpanel/compose.yaml \
+            deploy/cloudpanel/deploy.sh \
+            deploy/cloudpanel/healthcheck.sh \
+            .env.new \
+            "$CLOUDPANEL_SSH_USER@$CLOUDPANEL_HOST:$CLOUDPANEL_DEPLOY_PATH/"
+
+      - name: Autenticar servidor no GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+        shell: bash
+        run: |
+          username="${GHCR_USERNAME:-${{ github.repository_owner }}}"
+          printf '%s' "$GHCR_TOKEN" | ssh \
+            -i ~/.ssh/hubfiscal-cloudpanel \
+            -p "$CLOUDPANEL_SSH_PORT" \
+            "$CLOUDPANEL_SSH_USER@$CLOUDPANEL_HOST" \
+            "docker login ghcr.io --username '$username' --password-stdin"
+
+      - name: Executar deploy e rollback automático
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/hubfiscal-cloudpanel -p "$CLOUDPANEL_SSH_PORT" \
+            "$CLOUDPANEL_SSH_USER@$CLOUDPANEL_HOST" \
+            "cd '$CLOUDPANEL_DEPLOY_PATH' && chmod 700 deploy.sh healthcheck.sh && ./deploy.sh '$CLOUDPANEL_DEPLOY_PATH'"
+
+      - name: Validar URL pública
+        if: inputs.verify_public_url != false
+        run: |
+          curl --fail --show-error --silent \
+            --retry 12 --retry-delay 10 --retry-all-errors \
+            "https://$HUBFISCAL_DOMAIN/api/v1/health/live"
+
+      - name: Resumo do deploy
+        run: |
+          echo "### Deploy CloudPanel concluído" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Versão: ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Domínio: https://$HUBFISCAL_DOMAIN" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Servidor: $CLOUDPANEL_HOST" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Diretório: $CLOUDPANEL_DEPLOY_PATH" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Dados persistentes: $CLOUDPANEL_DATA_ROOT" >> "$GITHUB_STEP_SUMMARY"

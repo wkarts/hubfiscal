@@ -1,0 +1,267 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - VERSION
+      - apps/api/pyproject.toml
+      - apps/api/src/hubfiscal/__init__.py
+      - apps/web/package.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: hubfiscal-release
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      release_needed: ${{ steps.tag.outputs.release_needed }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      build_date: ${{ steps.version.outputs.build_date }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ler e validar versão
+        id: version
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          tag="v$version"
+          build_date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "build_date=$build_date" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG="$tag" ./scripts/check-version.sh --release
+
+      - name: Verificar se a release já existe
+        id: tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "A tag $TAG já existe; nenhuma nova publicação será feita."
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: metadata
+    if: needs.metadata.outputs.release_needed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validar contrato
+        env:
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+        run: ./scripts/check-version.sh --release
+      - name: Testar backend
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e 'apps/api[dev]'
+          ruff check apps/api/src apps/api/tests
+          python -m compileall -q apps/api/src
+          pytest -q
+      - name: Construir frontend
+        working-directory: apps/web
+        run: |
+          npm install
+          npm run build
+      - name: Validar Compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose --env-file deploy/cloudpanel/.env.example -f deploy/cloudpanel/compose.yaml config --quiet
+
+  base-images:
+    needs: [metadata, test]
+    if: needs.metadata.outputs.release_needed == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - name: api-base
+            dockerfile: docker/base/api-base.Dockerfile
+            tag: py3.13-v1
+          - name: web-base
+            dockerfile: docker/base/web-base.Dockerfile
+            tag: node24-v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/hubfiscal-${{ matrix.name }}:${{ matrix.tag }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: mode=max
+          sbom: true
+
+  images:
+    needs: [metadata, test, base-images]
+    if: needs.metadata.outputs.release_needed == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - image: api
+            dockerfile: apps/api/Dockerfile.production
+            base_arg: API_BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/hubfiscal-api-base:py3.13-v1
+          - image: web
+            dockerfile: apps/web/Dockerfile.production
+            base_arg: WEB_BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/hubfiscal-web-base:node24-v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calcular tags da imagem
+        id: tags
+        shell: bash
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/hubfiscal-${{ matrix.image }}
+        run: |
+          major="${VERSION%%.*}"
+          rest="${VERSION#*.}"
+          minor="${rest%%.*}"
+          {
+            echo 'value<<EOF'
+            echo "$IMAGE:$VERSION"
+            echo "$IMAGE:sha-${GITHUB_SHA::12}"
+            if [[ "$PRERELEASE" != "true" ]]; then
+              echo "$IMAGE:$major.$minor"
+              echo "$IMAGE:$major"
+              echo "$IMAGE:latest"
+            fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build e push multi-arquitetura
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.value }}
+          build-args: |
+            ${{ matrix.base_arg }}
+            APP_VERSION=${{ needs.metadata.outputs.version }}
+            BUILD_SHA=${{ github.sha }}
+            BUILD_DATE=${{ needs.metadata.outputs.build_date }}
+            BUILD_REF=${{ needs.metadata.outputs.tag }}
+          cache-from: type=gha,scope=app-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=app-${{ matrix.image }}
+          provenance: mode=max
+          sbom: true
+
+  artifacts:
+    needs: [metadata, test]
+    if: needs.metadata.outputs.release_needed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gerar pacote de release
+        run: ./scripts/package.sh release-assets
+      - name: Publicar artefato intermediário
+        uses: actions/upload-artifact@v4
+        with:
+          name: hubfiscal-${{ needs.metadata.outputs.version }}-release-assets
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release:
+    needs: [metadata, test, base-images, images, artifacts]
+    if: needs.metadata.outputs.release_needed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: hubfiscal-${{ needs.metadata.outputs.version }}-release-assets
+          path: release-assets
+
+      - name: Criar tag assinada pelo workflow
+        env:
+          TAG: ${{ needs.metadata.outputs.tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag -a "$TAG" -m "Hub Fiscal $VERSION"
+          git push origin "$TAG"
+
+      - name: Criar GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        shell: bash
+        run: |
+          args=(
+            "$TAG"
+            release-assets/*
+            --title "Hub Fiscal $VERSION"
+            --generate-notes
+            --verify-tag
+          )
+          [[ "$PRERELEASE" == "true" ]] && args+=(--prerelease)
+          gh release create "${args[@]}"
+
+      - name: Atestar artefatos
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-assets/*
+
+      - name: Resumo da release
+        run: |
+          echo "### Hub Fiscal ${{ needs.metadata.outputs.version }} publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: ${{ needs.metadata.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Imagens: API e Web para linux/amd64 e linux/arm64" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artefatos: source ZIP/TAR.GZ, pacote CloudPanel, manifesto e SHA256SUMS" >> "$GITHUB_STEP_SUMMARY"
