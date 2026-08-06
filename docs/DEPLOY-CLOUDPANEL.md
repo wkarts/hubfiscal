@@ -2,8 +2,6 @@
 
 O CloudPanel não executa nem administra a stack do Hub Fiscal. Ele atua somente como **reverse proxy HTTPS** para a porta publicada pelo Docker, Dockge ou Portainer.
 
-Arquitetura:
-
 ```text
 Internet / HTTPS
         ↓
@@ -11,57 +9,60 @@ CloudPanel / Nginx
         ↓ reverse proxy
 http://127.0.0.1:58088
         ↓
-container hubfiscal-web
+hubfiscal-web
         ↓
 API e serviços internos da stack Docker
 ```
 
-Não existe workflow SSH para acessar o servidor. O GitHub publica as imagens e os pacotes de release; a instalação e a atualização da stack são executadas pelo administrador no Docker, Dockge ou Portainer.
+O GitHub publica imagens e pacotes de release. Não existe workflow SSH conectando ao servidor.
 
-## Arquivos disponíveis
-
-```text
-compose.production.yaml
-
-deploy/cloudpanel/
-├── compose.yaml
-├── .env.example
-├── deploy.sh
-└── healthcheck.sh
-
-deploy/dockge/
-├── compose.yaml
-├── .env.example
-└── README.md
-
-deploy/portainer/
-├── compose.yaml
-├── .env.example
-└── README.md
-```
-
-Os quatro Compose de produção são mantidos idênticos e validados na CI.
-
-## Porta publicada
-
-O padrão do Hub Fiscal em produção é:
+## Contrato recomendado
 
 ```env
-HUBFISCAL_BIND_HOST=127.0.0.1
-HUBFISCAL_HTTP_PORT=58088
+COMPOSE_PROJECT_NAME=hubfiscal-wwsoftwares
+INSTANCE_NAME=wwsoftwares
+RESOURCE_PREFIX=hubfiscal-wwsoftwares
+
+APP_NAME="Hub Fiscal - WWSoftware's"
+APP_TIMEZONE=America/Bahia
+HUBFISCAL_DOMAIN=hubfiscal.wwsoftwares.com.br
+HUBFISCAL_CORS_ORIGINS=https://hubfiscal.wwsoftwares.com.br
+
+IMAGE_REGISTRY=ghcr.io
+IMAGE_NAMESPACE=wkarts
+APP_IMAGE_TAG=latest
+
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=58088
+HUBFISCAL_DATA_ROOT=./hubfiscal-data
 ```
 
-No CloudPanel, configure o reverse proxy para:
+No CloudPanel, aponte o domínio para:
 
 ```text
 http://127.0.0.1:58088
 ```
 
-Somente a aplicação web é publicada no host. PostgreSQL, Redis, RabbitMQ e MinIO permanecem na rede interna do Docker.
+Somente o frontend Nginx é publicado no host. PostgreSQL, Redis, RabbitMQ e MinIO permanecem na rede interna da stack.
+
+## Imagens latest
+
+A implantação normal utiliza:
+
+```text
+ghcr.io/wkarts/hubfiscal-api:latest
+ghcr.io/wkarts/hubfiscal-web:latest
+```
+
+O Compose aplica `pull_policy: always`. Para rollback, substitua temporariamente:
+
+```env
+APP_IMAGE_TAG=0.2.2
+```
+
+Depois da correção, retorne a `latest`.
 
 ## Persistência no Dockge
-
-Quando a stack estiver na pasta do Dockge, use:
 
 ```env
 HUBFISCAL_DATA_ROOT=./hubfiscal-data
@@ -80,65 +81,45 @@ A forma correta é:
 HUBFISCAL_DATA_ROOT=./hubfiscal-data
 ```
 
-A stack monta o caminho do host em `/data` somente no container inicializador. Os demais bind mounts usam destinos internos absolutos:
+A estrutura física será:
 
 ```text
-./hubfiscal-data/postgres  → /var/lib/postgresql/data
-./hubfiscal-data/redis     → /data
-./hubfiscal-data/rabbitmq  → /var/lib/rabbitmq
-./hubfiscal-data/minio     → /data
-./hubfiscal-data/celery    → /tmp/celery
+./hubfiscal-data/postgres
+./hubfiscal-data/redis
+./hubfiscal-data/rabbitmq
+./hubfiscal-data/minio
+./hubfiscal-data/celery
+./hubfiscal-data/backups
 ```
 
 ## MinIO próprio
 
 O MinIO já faz parte da mesma stack:
 
-```text
-hubfiscal-minio
-hubfiscal-minio-init
-```
-
-Configuração recomendada:
-
 ```env
 MINIO_USER=hubfiscal
-MINIO_PASSWORD=senha-forte
+MINIO_PASSWORD=<senha-forte>
 MINIO_BUCKET=hubfiscal-documents
 MINIO_REGION=sa-east-1
 MINIO_PUBLIC_ENDPOINT=
 ```
 
-`sa-east-1` é apenas o identificador lógico da região S3. Os dados continuam armazenados fisicamente no seu próprio servidor em:
+Os dados permanecem no servidor em `./hubfiscal-data/minio`. `sa-east-1` é apenas o identificador lógico compatível com S3.
 
-```text
-./hubfiscal-data/minio
-```
+## Instalação no Dockge
 
-Enquanto o MinIO não tiver um proxy S3 dedicado, mantenha `MINIO_PUBLIC_ENDPOINT` vazio. A aplicação acessa o MinIO internamente por `http://hubfiscal-minio:9000`.
-
-## Instalação com Dockge
-
-1. Crie a stack no Dockge.
+1. Crie a stack `hubfiscal-wwsoftwares`.
 2. Use `deploy/dockge/compose.yaml`.
-3. Copie `deploy/dockge/.env.example` para o ambiente da stack.
-4. Gere os segredos:
+3. Copie `deploy/dockge/.env.example` para o `.env` da stack.
+4. Gere segredos:
 
 ```bash
-bash scripts/generate-env.sh deploy/dockge/.env.example /caminho/da/stack/.env
+bash scripts/generate-env.sh \
+  deploy/dockge/.env.example \
+  /caminho/da/stack/.env
 ```
 
-5. Ajuste domínio e confirme:
-
-```env
-HUBFISCAL_DOMAIN=hubfiscal.wwsoftwares.com.br
-HUBFISCAL_CORS_ORIGINS=https://hubfiscal.wwsoftwares.com.br
-HUBFISCAL_BIND_HOST=127.0.0.1
-HUBFISCAL_HTTP_PORT=58088
-HUBFISCAL_DATA_ROOT=./hubfiscal-data
-```
-
-6. Valide antes de clicar em Deploy:
+5. Valide:
 
 ```bash
 bash deploy/docker-doctor.sh \
@@ -146,32 +127,28 @@ bash deploy/docker-doctor.sh \
   /caminho/da/stack/.env
 ```
 
-7. Faça o deploy no Dockge.
+6. Faça o deploy pelo Dockge.
+7. Configure o reverse proxy no CloudPanel.
 
-## Instalação com Docker Compose
+## Atualização
+
+Com `APP_IMAGE_TAG=latest`:
 
 ```bash
-cp deploy/cloudpanel/.env.example .env
-bash scripts/generate-env.sh deploy/cloudpanel/.env.example .env
-bash deploy/docker-doctor.sh compose.production.yaml .env
-bash deploy/start.sh compose.production.yaml .env
+docker compose --env-file .env -f compose.yaml pull
+docker compose --env-file .env -f compose.yaml up -d --remove-orphans --force-recreate
 ```
 
-## Imagens do GitHub Container Registry
+No Dockge, use **Update** ou **Deploy**. O serviço `hubfiscal-migrate` executará as migrations antes da API.
 
-A stack utiliza:
-
-```text
-ghcr.io/wkarts/hubfiscal-api:0.2.1
-ghcr.io/wkarts/hubfiscal-web:0.2.1
-```
-
-Para packages públicos, não é necessário login. Para packages privados:
+## Registry privado
 
 ```bash
 printf '%s' "$GHCR_TOKEN" |
   docker login ghcr.io --username wkarts --password-stdin
 ```
+
+O token precisa de `read:packages`.
 
 ## Diagnóstico
 
@@ -184,9 +161,4 @@ docker compose --env-file .env -f compose.yaml logs --tail=200 hubfiscal-web
 curl http://127.0.0.1:58088/api/v1/health/live
 ```
 
-## Atualização
-
-1. Altere `HUBFISCAL_IMAGE_TAG` para a versão publicada.
-2. Execute `Pull`/`Update` no Dockge ou Portainer.
-3. O serviço `hubfiscal-migrate` executará as migrations antes da API.
-4. Não use `docker compose down -v`, pois os dados são persistentes.
+Não execute `docker compose down -v` em produção.
