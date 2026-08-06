@@ -1,48 +1,105 @@
 # Hub Fiscal no Dockge
 
-## Estrutura recomendada
+## Arquitetura
+
+O Dockge administra a stack Docker. O CloudPanel apenas encaminha o domínio HTTPS para:
 
 ```text
-/opt/stacks/hubfiscal/
+http://127.0.0.1:58088
+```
+
+## Estrutura da stack
+
+```text
+<diretório-da-stack>/
 ├── compose.yaml
 ├── .env
-└── data/
+└── hubfiscal-data/
+    ├── postgres/
+    ├── redis/
+    ├── rabbitmq/
+    ├── minio/
+    ├── celery/
+    └── backups/
 ```
 
 ## Instalação
 
-1. Crie uma nova stack chamada `hubfiscal` no Dockge.
-2. Cole o conteúdo de `compose.yaml` no editor da stack.
-3. Copie `.env.example` para o campo de ambiente ou para `.env`.
-4. Gere os segredos antes da implantação:
+1. Crie uma stack chamada `hubfiscal`.
+2. Use o arquivo `deploy/dockge/compose.yaml`.
+3. Copie `deploy/dockge/.env.example` para o `.env` da stack.
+4. Gere os segredos:
 
 ```bash
-cd /opt/stacks/hubfiscal
-bash /caminho/do/repositorio/scripts/generate-env.sh .env.example .env
+bash scripts/generate-env.sh \
+  deploy/dockge/.env.example \
+  /caminho/da/stack/.env
 ```
 
-5. Ajuste `HUBFISCAL_CORS_ORIGINS` e `HUBFISCAL_BIND_HOST`.
-6. Quando o GHCR estiver privado, faça `docker login ghcr.io` no host.
-7. Clique em **Deploy**.
+5. Configure:
+
+```env
+HUBFISCAL_BIND_HOST=127.0.0.1
+HUBFISCAL_HTTP_PORT=58088
+HUBFISCAL_DOMAIN=hubfiscal.wwsoftwares.com.br
+HUBFISCAL_CORS_ORIGINS=https://hubfiscal.wwsoftwares.com.br
+HUBFISCAL_DATA_ROOT=./hubfiscal-data
+MINIO_REGION=sa-east-1
+MINIO_PUBLIC_ENDPOINT=
+```
+
+Não coloque comentários depois do valor de `HUBFISCAL_DATA_ROOT`.
+
+Incorreto:
+
+```env
+HUBFISCAL_DATA_ROOT=./hubfiscal-data sempre usar assim
+```
+
+Correto:
+
+```env
+# Sempre usar a pasta da própria stack
+HUBFISCAL_DATA_ROOT=./hubfiscal-data
+```
+
+6. Para packages privados, autentique o host no GHCR:
+
+```bash
+printf '%s' "$GHCR_TOKEN" |
+  docker login ghcr.io --username wkarts --password-stdin
+```
+
+7. Valide:
+
+```bash
+bash deploy/docker-doctor.sh \
+  /caminho/da/stack/compose.yaml \
+  /caminho/da/stack/.env
+```
+
+8. Clique em **Deploy**.
+
+## Reverse proxy CloudPanel
+
+Configure o site `hubfiscal.wwsoftwares.com.br` para encaminhar para:
+
+```text
+http://127.0.0.1:58088
+```
+
+Não exponha diretamente PostgreSQL, Redis, RabbitMQ ou MinIO.
 
 ## Validação
 
 ```bash
-bash /caminho/do/repositorio/deploy/docker-doctor.sh \
-  /opt/stacks/hubfiscal/compose.yaml \
-  /opt/stacks/hubfiscal/.env
-```
-
-Após iniciar:
-
-```bash
 docker compose \
-  --env-file /opt/stacks/hubfiscal/.env \
-  -f /opt/stacks/hubfiscal/compose.yaml \
+  --env-file /caminho/da/stack/.env \
+  -f /caminho/da/stack/compose.yaml \
   ps -a
-```
 
-Acesse `http://IP_DO_SERVIDOR:8088`, salvo alteração de `HUBFISCAL_HTTP_PORT`.
+curl http://127.0.0.1:58088/api/v1/health/live
+```
 
 ## Atualização
 
@@ -50,7 +107,7 @@ Altere `HUBFISCAL_IMAGE_TAG`, salve o `.env` e use **Update** ou **Deploy**. O s
 
 ## Observações
 
+- O MinIO é próprio e executa dentro da mesma stack.
+- Os dados do MinIO ficam em `./hubfiscal-data/minio`.
 - Não use `docker compose down -v` em produção.
-- Não altere o nome dos serviços, pois a rede interna depende deles.
-- Faça backup de `HUBFISCAL_DATA_ROOT`.
-- Caso a porta seja exposta diretamente, restrinja-a no firewall ou utilize proxy HTTPS.
+- Faça backup de `./hubfiscal-data`.

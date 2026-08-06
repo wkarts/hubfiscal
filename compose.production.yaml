@@ -36,7 +36,7 @@ x-api-environment: &api-environment
   MINIO_ENDPOINT: http://hubfiscal-minio:9000
   MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-}
   MINIO_BUCKET: ${MINIO_BUCKET:-hubfiscal-documents}
-  MINIO_REGION: ${MINIO_REGION:-us-east-1}
+  MINIO_REGION: ${MINIO_REGION:-sa-east-1}
   MINIO_ROOT_USER: ${MINIO_USER:-hubfiscal}
   MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD obrigatória}
   MINIO_SECURE: "false"
@@ -58,7 +58,7 @@ services:
     restart: "no"
     user: "0:0"
     volumes:
-      - ${HUBFISCAL_DATA_ROOT:-./data}:/data
+      - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}:/data
     command:
       - /bin/sh
       - -ec
@@ -84,7 +84,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatória}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - ${HUBFISCAL_DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
+      - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -104,7 +104,7 @@ services:
         condition: service_completed_successfully
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
     volumes:
-      - ${HUBFISCAL_DATA_ROOT:-./data}/redis:/data
+      - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -126,7 +126,7 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD obrigatória}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
     volumes:
-      - ${HUBFISCAL_DATA_ROOT:-./data}/rabbitmq:/var/lib/rabbitmq
+      - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/rabbitmq:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 15s
@@ -148,7 +148,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_USER:-hubfiscal}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD obrigatória}
     volumes:
-      - ${HUBFISCAL_DATA_ROOT:-./data}/minio:/data
+      - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/minio:/data
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1"]
       interval: 15s
@@ -227,7 +227,7 @@ services:
       hubfiscal-api:
         condition: service_healthy
     volumes:
-      - ${HUBFISCAL_DATA_ROOT:-./data}/celery:/tmp/celery
+      - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/celery:/tmp/celery
 
   hubfiscal-web:
     image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/hubfiscal-web:${HUBFISCAL_IMAGE_TAG:-0.2.1}
@@ -236,7 +236,7 @@ services:
       hubfiscal-api:
         condition: service_healthy
     ports:
-      - ${HUBFISCAL_BIND_HOST:-127.0.0.1}:${HUBFISCAL_HTTP_PORT:-8088}:80
+      - ${HUBFISCAL_BIND_HOST:-127.0.0.1}:${HUBFISCAL_HTTP_PORT:-58088}:80
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
       interval: 20s
