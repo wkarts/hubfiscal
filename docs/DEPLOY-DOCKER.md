@@ -1,12 +1,12 @@
 # Deploy Docker do Hub Fiscal
 
-A versão `0.2.1` utiliza uma stack de produção canônica em `compose.production.yaml`. Os arquivos abaixo são cópias idênticas da mesma stack para facilitar a importação:
+A stack de produção canônica está em `compose.production.yaml`. Os arquivos abaixo são cópias idênticas para facilitar a importação:
 
 - `deploy/cloudpanel/compose.yaml`;
 - `deploy/dockge/compose.yaml`;
 - `deploy/portainer/compose.yaml`.
 
-O CloudPanel não executa a stack. Ele faz somente o reverse proxy para a porta publicada pelo Docker, Dockge ou Portainer.
+O CloudPanel não executa containers. Ele atua somente como reverse proxy HTTPS para a porta publicada pela stack Docker.
 
 ## Serviços
 
@@ -24,157 +24,187 @@ hubfiscal-beat
 hubfiscal-web
 ```
 
-`hubfiscal-migrate` é um serviço one-shot. Ele executa as migrations antes da API e evita migrations concorrentes em reinícios da stack.
+`hubfiscal-migrate` é uma tarefa one-shot. Ela executa as migrations antes da API e evita concorrência entre API, worker e beat.
 
-## Requisitos
-
-- Docker Engine 26 ou superior;
-- Docker Compose v2;
-- acesso ao `ghcr.io`;
-- mínimo recomendado: 4 vCPU, 8 GB de RAM e 40 GB livres;
-- diretório persistente com permissão de gravação.
-
-## Padrão de produção
+## Contrato de imagem
 
 ```env
-HUBFISCAL_BIND_HOST=127.0.0.1
-HUBFISCAL_HTTP_PORT=58088
-HUBFISCAL_DATA_ROOT=./hubfiscal-data
-MINIO_REGION=sa-east-1
+IMAGE_REGISTRY=ghcr.io
+IMAGE_NAMESPACE=wkarts
+APP_IMAGE_TAG=latest
 ```
 
-No CloudPanel, o reverse proxy deve apontar para:
+A implantação usa `latest` por padrão. Cada release estável publica simultaneamente:
+
+```text
+ghcr.io/wkarts/hubfiscal-api:X.Y.Z
+ghcr.io/wkarts/hubfiscal-api:latest
+ghcr.io/wkarts/hubfiscal-web:X.Y.Z
+ghcr.io/wkarts/hubfiscal-web:latest
+```
+
+O Compose possui `pull_policy: always` para API, migrate, worker, beat e Web. Assim, `docker compose up` ou a atualização da stack no Dockge/Portainer consulta novamente a imagem `latest`.
+
+Para rollback, altere temporariamente:
+
+```env
+APP_IMAGE_TAG=0.2.2
+```
+
+Depois de estabilizar, retorne para:
+
+```env
+APP_IMAGE_TAG=latest
+```
+
+## Identidade da instalação
+
+Cada instalação precisa de nomes exclusivos:
+
+```env
+COMPOSE_PROJECT_NAME=hubfiscal-wwsoftwares
+INSTANCE_NAME=wwsoftwares
+RESOURCE_PREFIX=hubfiscal-wwsoftwares
+```
+
+Isso evita colisões entre redes, containers e projetos Compose quando houver mais de uma stack no mesmo servidor.
+
+## Porta e reverse proxy
+
+```env
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=58088
+```
+
+No CloudPanel, configure:
 
 ```text
 http://127.0.0.1:58088
 ```
 
-## Instalação pela linha de comando
-
-```bash
-bash scripts/generate-env.sh deploy/dockge/.env.example .env
-```
-
-Ajuste obrigatoriamente:
-
-```text
-HUBFISCAL_DOMAIN
-HUBFISCAL_CORS_ORIGINS
-HUBFISCAL_BIND_HOST
-HUBFISCAL_HTTP_PORT
-HUBFISCAL_DATA_ROOT
-GHCR_NAMESPACE
-HUBFISCAL_IMAGE_TAG
-```
-
-Não coloque explicações na mesma linha de uma variável. Exemplo inválido:
-
-```env
-HUBFISCAL_DATA_ROOT=./hubfiscal-data sempre usar assim
-```
-
-Exemplo correto:
-
-```env
-# Sempre usar a pasta da própria stack
-HUBFISCAL_DATA_ROOT=./hubfiscal-data
-```
-
-Valide:
-
-```bash
-bash deploy/docker-doctor.sh compose.production.yaml .env
-```
-
-Para validar também o acesso às imagens:
-
-```bash
-HUBFISCAL_DOCTOR_PULL=true \
-  bash deploy/docker-doctor.sh compose.production.yaml .env
-```
-
-Inicie:
-
-```bash
-bash deploy/start.sh compose.production.yaml .env
-```
-
-## Imagens no GHCR
-
-```text
-ghcr.io/wkarts/hubfiscal-api:0.2.1
-ghcr.io/wkarts/hubfiscal-web:0.2.1
-```
-
-Quando os packages forem privados:
-
-```bash
-printf '%s' "$GHCR_TOKEN" |
-  docker login ghcr.io --username wkarts --password-stdin
-```
-
-O token precisa do escopo `read:packages`.
+Use `0.0.0.0` apenas quando o proxy estiver em outro host e a porta estiver protegida por firewall.
 
 ## Persistência
 
-A variável `HUBFISCAL_DATA_ROOT` contém:
-
-```text
-postgres/
-redis/
-rabbitmq/
-minio/
-celery/
-backups/
+```env
+HUBFISCAL_DATA_ROOT=./hubfiscal-data
 ```
 
-No Dockge, `./hubfiscal-data` é resolvido dentro da pasta da stack. A montagem inicial usa `/data` como destino absoluto dentro do container, evitando o erro `invalid mount path`.
+A estrutura física será:
 
-Não remova esse diretório durante atualizações. Containers e imagens podem ser recriados sem apagar documentos e bancos.
+```text
+hubfiscal-data/
+├── postgres/
+├── redis/
+├── rabbitmq/
+├── minio/
+├── celery/
+└── backups/
+```
+
+O diretório relativo é resolvido a partir da pasta da stack. Não coloque comentários na mesma linha do valor.
+
+Correto:
+
+```env
+# Dados dentro da pasta da stack
+HUBFISCAL_DATA_ROOT=./hubfiscal-data
+```
+
+Incorreto:
+
+```env
+HUBFISCAL_DATA_ROOT=./hubfiscal-data usar sempre assim
+```
 
 ## MinIO próprio
 
-O MinIO é executado dentro da mesma stack e armazena os arquivos em:
-
-```text
-./hubfiscal-data/minio
-```
-
-Configuração:
+O MinIO faz parte da mesma stack:
 
 ```env
 MINIO_USER=hubfiscal
-MINIO_PASSWORD=senha-forte
+MINIO_PASSWORD=<senha-gerada>
 MINIO_BUCKET=hubfiscal-documents
 MINIO_REGION=sa-east-1
 MINIO_PUBLIC_ENDPOINT=
 ```
 
-`sa-east-1` é um identificador lógico compatível com S3; não significa que os dados sairão do seu servidor.
+`sa-east-1` é um identificador lógico compatível com S3. Os dados permanecem em `./hubfiscal-data/minio` no seu servidor.
 
-## Atualização
+As imagens auxiliares são fixadas por padrão:
 
-Altere somente:
-
-```text
-HUBFISCAL_IMAGE_TAG=X.Y.Z
+```env
+MINIO_IMAGE=minio/minio:RELEASE.2025-09-07T16-13-09Z
+MINIO_MC_IMAGE=minio/mc:RELEASE.2025-08-13T08-35-41Z
 ```
 
-Depois execute:
+## Instalação
 
 ```bash
-docker compose --env-file .env -f compose.production.yaml pull
-docker compose --env-file .env -f compose.production.yaml up -d --remove-orphans
+cp deploy/dockge/.env.example .env
+bash scripts/generate-env.sh .env .env --keep-existing
 ```
+
+Revise:
+
+```text
+COMPOSE_PROJECT_NAME
+INSTANCE_NAME
+RESOURCE_PREFIX
+APP_NAME
+HUBFISCAL_DOMAIN
+HUBFISCAL_CORS_ORIGINS
+HUBFISCAL_DATA_ROOT
+WEB_BIND_HOST
+WEB_PUBLISHED_PORT
+```
+
+Valide:
+
+```bash
+bash deploy/docker-doctor.sh deploy/dockge/compose.yaml .env
+```
+
+Valide também o registry:
+
+```bash
+HUBFISCAL_DOCTOR_PULL=true \
+  bash deploy/docker-doctor.sh deploy/dockge/compose.yaml .env
+```
+
+Inicie:
+
+```bash
+bash deploy/start.sh deploy/dockge/compose.yaml .env
+```
+
+## Atualização usando latest
+
+```bash
+docker compose --env-file .env -f deploy/dockge/compose.yaml pull
+docker compose --env-file .env -f deploy/dockge/compose.yaml up -d --remove-orphans --force-recreate
+```
+
+No Dockge, use **Update** ou **Deploy**. No Portainer, use **Pull latest image** e depois atualize a stack.
+
+## Registry privado
+
+Quando os packages do GHCR forem privados:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u wkarts --password-stdin
+```
+
+O token precisa de `read:packages`.
 
 ## Diagnóstico
 
 ```bash
-docker compose --env-file .env -f compose.production.yaml ps -a
-docker compose --env-file .env -f compose.production.yaml logs --tail=200 hubfiscal-storage-init
-docker compose --env-file .env -f compose.production.yaml logs --tail=200 hubfiscal-migrate
-docker compose --env-file .env -f compose.production.yaml logs --tail=200 hubfiscal-api
-docker compose --env-file .env -f compose.production.yaml logs --tail=200 hubfiscal-web
+docker compose --env-file .env -f deploy/dockge/compose.yaml ps -a
+docker compose --env-file .env -f deploy/dockge/compose.yaml logs --tail=200 hubfiscal-storage-init
+docker compose --env-file .env -f deploy/dockge/compose.yaml logs --tail=200 hubfiscal-migrate
+docker compose --env-file .env -f deploy/dockge/compose.yaml logs --tail=200 hubfiscal-api
+docker compose --env-file .env -f deploy/dockge/compose.yaml logs --tail=200 hubfiscal-web
 ```
 
 Health check:
@@ -183,12 +213,4 @@ Health check:
 curl --fail http://127.0.0.1:58088/api/v1/health/live
 ```
 
-## Portas públicas
-
-A stack publica somente o frontend:
-
-```text
-HUBFISCAL_BIND_HOST:HUBFISCAL_HTTP_PORT
-```
-
-PostgreSQL, Redis, RabbitMQ e MinIO permanecem internos. Atrás do CloudPanel, use `127.0.0.1`. Sem proxy reverso, use `0.0.0.0` apenas com firewall adequado.
+Não execute `docker compose down -v` em produção e não remova `HUBFISCAL_DATA_ROOT` durante atualizações.
