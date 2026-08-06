@@ -28,7 +28,6 @@ Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para capt
 - Migration one-shot antes da API.
 - Versionamento SemVer centralizado.
 - GitHub Release com artefatos, checksums, SBOM e imagens multi-arquitetura.
-- Deploy CloudPanel opcional com SSH, backup preventivo, health check e rollback.
 
 ## Desenvolvimento local
 
@@ -57,15 +56,31 @@ deploy/dockge/
 deploy/portainer/
 ```
 
+O CloudPanel atua somente como reverse proxy. O padrão de produção é:
+
+```env
+HUBFISCAL_BIND_HOST=127.0.0.1
+HUBFISCAL_HTTP_PORT=58088
+HUBFISCAL_DATA_ROOT=./hubfiscal-data
+```
+
+No CloudPanel, direcione o domínio para:
+
+```text
+http://127.0.0.1:58088
+```
+
 Exemplo pela linha de comando:
 
 ```bash
-bash scripts/generate-env.sh deploy/portainer/.env.example .env
-bash deploy/docker-doctor.sh compose.production.yaml .env
-bash deploy/start.sh compose.production.yaml .env
+bash scripts/generate-env.sh deploy/dockge/.env.example .env
+bash deploy/docker-doctor.sh deploy/dockge/compose.yaml .env
+bash deploy/start.sh deploy/dockge/compose.yaml .env
 ```
 
 A aplicação constrói internamente as URLs do PostgreSQL, Redis e RabbitMQ. As senhas podem conter caracteres especiais sem quebrar os endereços de conexão.
+
+O MinIO é executado na mesma stack e grava em `./hubfiscal-data/minio`.
 
 Documentação: [`docs/DEPLOY-DOCKER.md`](docs/DEPLOY-DOCKER.md).
 
@@ -95,19 +110,9 @@ Após o merge da PR de versão, o workflow **Release** publica:
 - imagens API e Web para `linux/amd64` e `linux/arm64`;
 - proveniência e SBOM.
 
-Consulte [`docs/RELEASE.md`](docs/RELEASE.md).
+O GitHub não acessa o servidor. A atualização da stack é executada manualmente no Docker, Dockge ou Portainer.
 
-## Deploy CloudPanel automático
-
-O deploy não é ativado somente por existir uma release. Para habilitar, configure a Variable de repositório:
-
-```text
-CLOUDPANEL_DEPLOY_ENABLED=true
-```
-
-As credenciais ficam no Environment `cloudpanel-production`. Sem essa ativação, o workflow é ignorado com sucesso e não cria um deployment vermelho.
-
-Consulte [`docs/DEPLOY-CLOUDPANEL.md`](docs/DEPLOY-CLOUDPANEL.md).
+Consulte [`docs/RELEASE.md`](docs/RELEASE.md) e [`docs/DEPLOY-CLOUDPANEL.md`](docs/DEPLOY-CLOUDPANEL.md).
 
 ## Plugins fiscais externos
 
