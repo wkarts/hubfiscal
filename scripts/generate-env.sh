@@ -1,15 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEMPLATE="${1:-.env.example}"
-OUTPUT="${2:-.env}"
 KEEP_EXISTING=false
+POSITIONAL=()
 
 for argument in "$@"; do
-  if [[ "$argument" == "--keep-existing" ]]; then
-    KEEP_EXISTING=true
-  fi
+  case "$argument" in
+    --keep-existing)
+      KEEP_EXISTING=true
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Uso:
+  generate-env.sh [--keep-existing]
+  generate-env.sh TEMPLATE OUTPUT [--keep-existing]
+
+Exemplos:
+  bash scripts/generate-env.sh
+  bash scripts/generate-env.sh --keep-existing
+  bash scripts/generate-env.sh deploy/cloudpanel/.env.example /tmp/hubfiscal/.env
+EOF
+      exit 0
+      ;;
+    *)
+      POSITIONAL+=("$argument")
+      ;;
+  esac
 done
+
+if (( ${#POSITIONAL[@]} > 2 )); then
+  echo "Número inválido de argumentos. Use --help." >&2
+  exit 1
+fi
+
+TEMPLATE="${POSITIONAL[0]:-.env.example}"
+OUTPUT="${POSITIONAL[1]:-.env}"
 
 if [[ ! -f "$TEMPLATE" ]]; then
   echo "Template não encontrado: $TEMPLATE" >&2
@@ -22,7 +47,7 @@ if [[ -f "$OUTPUT" && "$KEEP_EXISTING" == "false" ]]; then
 fi
 
 if [[ ! -f "$OUTPUT" ]]; then
-  cp "$TEMPLATE" "$OUTPUT"
+  install -m 600 "$TEMPLATE" "$OUTPUT"
 fi
 
 ENV_OUTPUT="$OUTPUT" python3 - <<'PY'
