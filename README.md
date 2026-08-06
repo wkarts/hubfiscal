@@ -2,7 +2,7 @@
 
 Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para captura, armazenamento, consulta e distribuição de documentos fiscais eletrônicos.
 
-**Versão atual:** `0.2.2`
+**Versão atual:** `0.2.3`
 
 ## Stack
 
