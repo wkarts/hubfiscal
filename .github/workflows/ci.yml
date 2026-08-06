@@ -18,20 +18,56 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+
       - name: Validar contrato de versão
         run: ./scripts/check-version.sh
+
       - name: Validar scripts
         run: |
           python3 -m py_compile scripts/set-version.py
           bash -n scripts/*.sh
+          bash -n deploy/*.sh
           bash -n deploy/cloudpanel/*.sh
-      - name: Validar Compose
+
+      - name: Validar paridade dos Compose de produção
+        run: |
+          cmp compose.production.yaml deploy/cloudpanel/compose.yaml
+          cmp compose.production.yaml deploy/dockge/compose.yaml
+          cmp compose.production.yaml deploy/portainer/compose.yaml
+
+      - name: Validar Compose de desenvolvimento
         run: |
           cp .env.example .env
-          docker compose config --quiet
-          docker compose --env-file deploy/cloudpanel/.env.example -f deploy/cloudpanel/compose.yaml config --quiet
+          docker compose --env-file .env -f compose.yaml config --quiet
+
+      - name: Validar Compose CloudPanel
+        run: |
+          docker compose \
+            --env-file deploy/cloudpanel/.env.example \
+            -f deploy/cloudpanel/compose.yaml \
+            config --quiet
+
+      - name: Validar Compose Dockge
+        run: |
+          docker compose \
+            --env-file deploy/dockge/.env.example \
+            -f deploy/dockge/compose.yaml \
+            config --quiet
+
+      - name: Validar Compose Portainer
+        run: |
+          docker compose \
+            --env-file deploy/portainer/.env.example \
+            -f deploy/portainer/compose.yaml \
+            config --quiet
+
       - name: Validar empacotamento da release
-        run: ./scripts/package.sh /tmp/hubfiscal-release-assets
+        run: |
+          ./scripts/package.sh /tmp/hubfiscal-release-assets
+          test -s /tmp/hubfiscal-release-assets/hubfiscal-$(cat VERSION)-cloudpanel.tar.gz
+          test -s /tmp/hubfiscal-release-assets/hubfiscal-$(cat VERSION)-dockge.tar.gz
+          test -s /tmp/hubfiscal-release-assets/hubfiscal-$(cat VERSION)-portainer.tar.gz
+          (cd /tmp/hubfiscal-release-assets && sha256sum -c SHA256SUMS)
 
   backend:
     runs-on: ubuntu-24.04
@@ -57,7 +93,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: npm install
+      - run: npm install --include=dev --no-audit --no-fund
       - run: npm run build
 
   docker:
@@ -65,15 +101,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
-      - run: docker compose config --quiet
+      - run: docker compose --env-file .env -f compose.yaml config --quiet
+
       - name: Build imagens de desenvolvimento
         run: |
           docker build -f apps/api/Dockerfile -t hubfiscal-api:ci .
           docker build -f apps/web/Dockerfile -t hubfiscal-web:ci .
+
       - name: Build imagens-base reais
         run: |
           docker build -f docker/base/api-base.Dockerfile -t hubfiscal-api-base:ci .
           docker build -f docker/base/web-base.Dockerfile -t hubfiscal-web-base:ci .
+
       - name: Build API de produção
         run: |
           docker build \
@@ -84,6 +123,7 @@ jobs:
             --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             --build-arg BUILD_REF="ci" \
             -t hubfiscal-api:production-ci .
+
       - name: Build Web de produção
         run: |
           docker build \
