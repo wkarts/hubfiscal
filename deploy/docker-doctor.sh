@@ -11,6 +11,10 @@ ok() {
   printf '[OK] %s\n' "$1"
 }
 
+warn() {
+  printf '[AVISO] %s\n' "$1" >&2
+}
+
 fail() {
   printf '[ERRO] %s\n' "$1" >&2
   failures=$((failures + 1))
@@ -73,8 +77,11 @@ PY
 }
 
 required=(
-  HUBFISCAL_IMAGE_TAG HUBFISCAL_SECRET_KEY HUBFISCAL_ENCRYPTION_KEY
-  HUBFISCAL_BOOTSTRAP_TOKEN HUBFISCAL_CORS_ORIGINS HUBFISCAL_DATA_ROOT
+  COMPOSE_PROJECT_NAME INSTANCE_NAME RESOURCE_PREFIX
+  IMAGE_REGISTRY IMAGE_NAMESPACE APP_IMAGE_TAG
+  HUBFISCAL_SECRET_KEY HUBFISCAL_ENCRYPTION_KEY HUBFISCAL_BOOTSTRAP_TOKEN
+  HUBFISCAL_CORS_ORIGINS HUBFISCAL_DATA_ROOT
+  WEB_BIND_HOST WEB_PUBLISHED_PORT
   POSTGRES_PASSWORD RABBITMQ_PASSWORD MINIO_PASSWORD
 )
 
@@ -88,6 +95,20 @@ for name in "${required[@]}"; do
     ok "$name configurada."
   fi
 done
+
+for legacy in HUBFISCAL_IMAGE_TAG GHCR_REGISTRY GHCR_NAMESPACE HUBFISCAL_BIND_HOST HUBFISCAL_HTTP_PORT; do
+  value="$(read_env "$legacy" 2>/dev/null || true)"
+  if [[ -n "$value" ]]; then
+    fail "Variável legada $legacy encontrada; use o novo contrato do .env.example."
+  fi
+done
+
+image_tag="$(read_env APP_IMAGE_TAG 2>/dev/null || true)"
+if [[ "$image_tag" == "latest" ]]; then
+  ok "APP_IMAGE_TAG usa latest e acompanhará a release estável mais recente."
+else
+  warn "APP_IMAGE_TAG está fixada em $image_tag; isso é adequado somente para rollback ou homologação."
+fi
 
 secret="$(read_env HUBFISCAL_SECRET_KEY 2>/dev/null || true)"
 if [[ -n "$secret" && "${#secret}" -lt 32 ]]; then
@@ -107,9 +128,9 @@ if [[ -n "$data_root" ]]; then
   fi
 fi
 
-http_port="$(read_env HUBFISCAL_HTTP_PORT 2>/dev/null || echo 58088)"
+http_port="$(read_env WEB_PUBLISHED_PORT 2>/dev/null || echo 58088)"
 if [[ ! "$http_port" =~ ^[0-9]+$ ]] || (( http_port < 1 || http_port > 65535 )); then
-  fail "HUBFISCAL_HTTP_PORT inválida: $http_port"
+  fail "WEB_PUBLISHED_PORT inválida: $http_port"
 elif command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$http_port" | grep -q LISTEN; then
   fail "A porta $http_port já está em uso."
 else
@@ -126,7 +147,7 @@ if [[ "$PULL_IMAGES" == "true" ]]; then
   if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" pull; then
     ok "Imagens acessíveis no registry."
   else
-    fail "Falha ao baixar imagens. Verifique tag e autenticação no GHCR."
+    fail "Falha ao baixar imagens. Verifique APP_IMAGE_TAG e autenticação no registry."
   fi
 fi
 
