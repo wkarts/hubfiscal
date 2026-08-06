@@ -70,9 +70,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        for directory in postgres redis rabbitmq minio celery backups; do
-          mkdir -p "/data/$directory"
-        done
+        mkdir -p /data/postgres /data/redis /data/rabbitmq /data/minio /data/celery /data/backups
         chmod 0755 /data
         chmod 0777 /data/postgres /data/redis /data/rabbitmq /data/minio /data/backups
         chown -R ${API_RUNTIME_UID:-10001}:${API_RUNTIME_GID:-10001} /data/celery
