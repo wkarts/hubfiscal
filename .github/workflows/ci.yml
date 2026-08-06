@@ -38,28 +38,48 @@ jobs:
       - name: Validar Compose de desenvolvimento
         run: |
           cp .env.example .env
-          docker compose --env-file .env -f compose.yaml config --quiet
+          output="$(docker compose --env-file .env -f compose.yaml config --quiet 2>&1)" || { printf '%s\n' "$output"; exit 1; }
+          if [[ -n "$output" ]]; then printf '%s\n' "$output"; echo 'Compose emitiu warning(s).'; exit 1; fi
 
       - name: Validar Compose CloudPanel
         run: |
-          docker compose \
+          output="$(docker compose \
             --env-file deploy/cloudpanel/.env.example \
             -f deploy/cloudpanel/compose.yaml \
-            config --quiet
+            config --quiet 2>&1)" || { printf '%s\n' "$output"; exit 1; }
+          if [[ -n "$output" ]]; then printf '%s\n' "$output"; echo 'Compose emitiu warning(s).'; exit 1; fi
 
       - name: Validar Compose Dockge
         run: |
-          docker compose \
+          output="$(docker compose \
             --env-file deploy/dockge/.env.example \
             -f deploy/dockge/compose.yaml \
-            config --quiet
+            config --quiet 2>&1)" || { printf '%s\n' "$output"; exit 1; }
+          if [[ -n "$output" ]]; then printf '%s\n' "$output"; echo 'Compose emitiu warning(s).'; exit 1; fi
 
       - name: Validar Compose Portainer
         run: |
-          docker compose \
+          output="$(docker compose \
             --env-file deploy/portainer/.env.example \
             -f deploy/portainer/compose.yaml \
-            config --quiet
+            config --quiet 2>&1)" || { printf '%s\n' "$output"; exit 1; }
+          if [[ -n "$output" ]]; then printf '%s\n' "$output"; echo 'Compose emitiu warning(s).'; exit 1; fi
+
+      - name: Smoke test do storage-init
+        run: |
+          cp deploy/dockge/.env.example /tmp/hubfiscal-storage.env
+          sed -i 's|^HUBFISCAL_DATA_ROOT=.*|HUBFISCAL_DATA_ROOT=/tmp/hubfiscal-storage-smoke|' /tmp/hubfiscal-storage.env
+          rm -rf /tmp/hubfiscal-storage-smoke
+          docker compose \
+            --env-file /tmp/hubfiscal-storage.env \
+            -f deploy/dockge/compose.yaml \
+            run --rm --no-deps hubfiscal-storage-init
+          test -d /tmp/hubfiscal-storage-smoke/postgres
+          test -d /tmp/hubfiscal-storage-smoke/redis
+          test -d /tmp/hubfiscal-storage-smoke/rabbitmq
+          test -d /tmp/hubfiscal-storage-smoke/minio
+          test -d /tmp/hubfiscal-storage-smoke/celery
+          test -d /tmp/hubfiscal-storage-smoke/backups
 
       - name: Validar empacotamento da release
         run: |
@@ -101,7 +121,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
-      - run: docker compose --env-file .env -f compose.yaml config --quiet
+      - run: |
+          output="$(docker compose --env-file .env -f compose.yaml config --quiet 2>&1)" || { printf '%s\n' "$output"; exit 1; }
+          if [[ -n "$output" ]]; then printf '%s\n' "$output"; echo 'Compose emitiu warning(s).'; exit 1; fi
 
       - name: Build imagens de desenvolvimento
         run: |
