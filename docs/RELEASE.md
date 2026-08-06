@@ -1,21 +1,24 @@
 # Versionamento e Release
 
-O Hub Fiscal usa SemVer com uma fonte central de versão no arquivo `VERSION`.
+O Hub Fiscal usa SemVer com fonte central no arquivo `VERSION`.
 
-A mesma versão é obrigatoriamente sincronizada em:
+A versão é sincronizada em:
 
 - `VERSION`;
 - `apps/api/pyproject.toml`;
 - `apps/api/src/hubfiscal/__init__.py`;
 - `apps/web/package.json`;
-- `.env.example`;
-- `deploy/cloudpanel/.env.example`;
-- `deploy/dockge/.env.example`;
-- `deploy/portainer/.env.example`.
+- `.env.example`, no campo `VITE_APP_VERSION`.
+
+A tag de implantação é independente:
+
+```env
+APP_IMAGE_TAG=latest
+```
+
+O script `set-version.py` nunca substitui `latest` por uma versão numérica.
 
 ## Preparar uma versão
-
-No GitHub:
 
 ```text
 Actions → Preparar release → Run workflow
@@ -24,11 +27,12 @@ Actions → Preparar release → Run workflow
 Escolha `patch`, `minor` ou `major`. O workflow:
 
 1. calcula a próxima versão;
-2. sincroniza todos os arquivos;
-3. valida backend, frontend e todos os Compose;
-4. impede colisão de tag;
-5. cria `release/vX.Y.Z`;
-6. abre uma Pull Request de release.
+2. sincroniza API, frontend e metadados;
+3. mantém `APP_IMAGE_TAG=latest` nos ambientes de implantação;
+4. valida backend, frontend e todos os Compose;
+5. impede colisão de tag;
+6. cria `release/vX.Y.Z`;
+7. abre uma Pull Request de release.
 
 Localmente:
 
@@ -44,8 +48,8 @@ Após o merge da PR de release em `main`, o workflow `Release`:
 
 - valida o contrato de versão;
 - executa Ruff, compileall e Pytest;
-- constrói o frontend com dependências compatíveis fixadas;
-- valida as stacks Docker, CloudPanel, Dockge e Portainer;
+- constrói o frontend;
+- valida Docker, CloudPanel, Dockge e Portainer;
 - publica imagens-base;
 - publica API e Web para `linux/amd64` e `linux/arm64`;
 - gera proveniência e SBOM;
@@ -57,21 +61,23 @@ Após o merge da PR de release em `main`, o workflow `Release`:
 
 ## Tags de imagens
 
-Para uma release estável `0.2.1`:
+Para uma release estável `0.2.2`:
 
 ```text
-ghcr.io/wkarts/hubfiscal-api:0.2.1
+ghcr.io/wkarts/hubfiscal-api:0.2.2
 ghcr.io/wkarts/hubfiscal-api:0.2
 ghcr.io/wkarts/hubfiscal-api:0
 ghcr.io/wkarts/hubfiscal-api:latest
 
-ghcr.io/wkarts/hubfiscal-web:0.2.1
+ghcr.io/wkarts/hubfiscal-web:0.2.2
 ghcr.io/wkarts/hubfiscal-web:0.2
 ghcr.io/wkarts/hubfiscal-web:0
 ghcr.io/wkarts/hubfiscal-web:latest
 ```
 
-Pré-releases recebem a versão exata e a tag por commit, sem substituir `latest`.
+A stack padrão sempre usa `latest`. Tags SemVer permanecem disponíveis para rollback e homologação reprodutível.
+
+Pré-releases recebem a versão exata e a tag por commit, sem substituir `latest`, pois `latest` representa exclusivamente a release estável mais recente.
 
 ## Artefatos
 
@@ -85,22 +91,40 @@ release-manifest.json
 SHA256SUMS
 ```
 
+O manifesto registra:
+
+```json
+{
+  "deployment_tag": "latest",
+  "images": {
+    "api": {
+      "versioned": "ghcr.io/wkarts/hubfiscal-api:X.Y.Z",
+      "deployment": "ghcr.io/wkarts/hubfiscal-api:latest"
+    }
+  }
+}
+```
+
 Validação:
 
 ```bash
 sha256sum -c SHA256SUMS
 ```
 
+## Atualização da instalação
+
+Com `APP_IMAGE_TAG=latest`:
+
+```bash
+docker compose --env-file .env -f compose.yaml pull
+docker compose --env-file .env -f compose.yaml up -d --remove-orphans --force-recreate
+```
+
+O Compose também declara `pull_policy: always` nas imagens da aplicação.
+
 ## Dependências do frontend
 
-O Vite e o plugin Vue são fixados em versões compatíveis. O Dependabot agrupa o toolchain e não abre atualizações major isoladas. Uma migração de major precisa atualizar e validar conjuntamente:
-
-```text
-vite
-@vitejs/plugin-vue
-vue-tsc
-typescript
-```
+O Vite e o plugin Vue são fixados em versões compatíveis. O Dependabot agrupa o toolchain e não abre atualizações major isoladas.
 
 ## Versão em execução
 
@@ -112,4 +136,4 @@ GET /api/v1/health
 GET /api/v1/health/live
 ```
 
-Cada build informa versão SemVer, commit SHA, ref/tag e data UTC da construção.
+Cada imagem carrega versão SemVer, commit SHA, ref/tag e data UTC da construção. O Compose não sobrescreve esses valores com `unknown`.
