@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     postgres_port: int = Field(default=5432, alias="POSTGRES_PORT")
     postgres_db: str = Field(default="hubfiscal", alias="POSTGRES_DB")
     postgres_user: str = Field(default="hubfiscal", alias="POSTGRES_USER")
-    postgres_password: str = Field(alias="POSTGRES_PASSWORD")
+    postgres_password: str = Field(default="", alias="POSTGRES_PASSWORD")
 
     redis_host: str = Field(default="hubfiscal-redis", alias="REDIS_HOST")
     redis_port: int = Field(default=6379, alias="REDIS_PORT")
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     rabbitmq_host: str = Field(default="hubfiscal-rabbitmq", alias="RABBITMQ_HOST")
     rabbitmq_port: int = Field(default=5672, alias="RABBITMQ_PORT")
     rabbitmq_user: str = Field(default="hubfiscal", alias="RABBITMQ_USER")
-    rabbitmq_password: str = Field(alias="RABBITMQ_PASSWORD")
+    rabbitmq_password: str = Field(default="", alias="RABBITMQ_PASSWORD")
     rabbitmq_vhost: str = Field(default="/", alias="RABBITMQ_VHOST")
 
     minio_endpoint: str = Field(alias="MINIO_ENDPOINT")
@@ -88,21 +88,27 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def build_internal_urls(self) -> "Settings":
-        postgres_user = quote(self.postgres_user, safe="")
-        postgres_password = quote(self.postgres_password, safe="")
-        postgres_db = quote(self.postgres_db, safe="")
+        if not self.database_url or not self.database_url_sync:
+            if not self.postgres_password:
+                raise ValueError(
+                    "POSTGRES_PASSWORD é obrigatória quando DATABASE_URL e "
+                    "DATABASE_URL_SYNC não são informadas"
+                )
+            postgres_user = quote(self.postgres_user, safe="")
+            postgres_password = quote(self.postgres_password, safe="")
+            postgres_db = quote(self.postgres_db, safe="")
 
-        if not self.database_url:
-            self.database_url = (
-                f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
-                f"@{self.postgres_host}:{self.postgres_port}/{postgres_db}"
-            )
+            if not self.database_url:
+                self.database_url = (
+                    f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
+                    f"@{self.postgres_host}:{self.postgres_port}/{postgres_db}"
+                )
 
-        if not self.database_url_sync:
-            self.database_url_sync = (
-                f"postgresql+psycopg://{postgres_user}:{postgres_password}"
-                f"@{self.postgres_host}:{self.postgres_port}/{postgres_db}"
-            )
+            if not self.database_url_sync:
+                self.database_url_sync = (
+                    f"postgresql+psycopg://{postgres_user}:{postgres_password}"
+                    f"@{self.postgres_host}:{self.postgres_port}/{postgres_db}"
+                )
 
         if not self.redis_url:
             self.redis_url = (
@@ -116,6 +122,11 @@ class Settings(BaseSettings):
             )
 
         if not self.celery_broker_url:
+            if not self.rabbitmq_password:
+                raise ValueError(
+                    "RABBITMQ_PASSWORD é obrigatória quando "
+                    "CELERY_BROKER_URL não é informada"
+                )
             rabbitmq_user = quote(self.rabbitmq_user, safe="")
             rabbitmq_password = quote(self.rabbitmq_password, safe="")
             if self.rabbitmq_vhost == "/":
