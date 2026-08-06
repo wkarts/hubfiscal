@@ -2,13 +2,68 @@ version: 2
 updates:
   - package-ecosystem: pip
     directory: /apps/api
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly
+    groups:
+      python-runtime:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: npm
     directory: /apps/web
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      vue-build-toolchain:
+        patterns:
+          - vite
+          - "@vitejs/plugin-vue"
+          - vue-tsc
+          - typescript
+        update-types:
+          - minor
+          - patch
+      vue-runtime:
+        patterns:
+          - vue
+          - vue-router
+          - pinia
+          - vue-echarts
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: vite
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@vitejs/plugin-vue"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: vue-tsc
+        update-types:
+          - version-update:semver-major
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
   - package-ecosystem: docker
     directory: /
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly
+    groups:
+      docker-images:
+        patterns:
+          - "*"
