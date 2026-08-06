@@ -88,11 +88,18 @@ manifest = {
     "tag": tag,
     "commit": sha,
     "built_at": built_at,
+    "deployment_tag": "latest",
     "artifacts": artifacts,
-    "images": [
-        f"ghcr.io/wkarts/hubfiscal-api:{version}",
-        f"ghcr.io/wkarts/hubfiscal-web:{version}",
-    ],
+    "images": {
+        "api": {
+            "versioned": f"ghcr.io/wkarts/hubfiscal-api:{version}",
+            "deployment": "ghcr.io/wkarts/hubfiscal-api:latest",
+        },
+        "web": {
+            "versioned": f"ghcr.io/wkarts/hubfiscal-web:{version}",
+            "deployment": "ghcr.io/wkarts/hubfiscal-web:latest",
+        },
+    },
     "deployment_packages": ["cloudpanel", "dockge", "portainer"],
 }
 (out / "release-manifest.json").write_text(

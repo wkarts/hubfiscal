@@ -8,7 +8,7 @@ O Dockge administra a stack Docker. O CloudPanel apenas encaminha o domínio HTT
 http://127.0.0.1:58088
 ```
 
-## Estrutura da stack
+## Estrutura
 
 ```text
 <diretório-da-stack>/
@@ -25,8 +25,8 @@ http://127.0.0.1:58088
 
 ## Instalação
 
-1. Crie uma stack chamada `hubfiscal`.
-2. Use o arquivo `deploy/dockge/compose.yaml`.
+1. Crie a stack `hubfiscal-wwsoftwares`.
+2. Use `deploy/dockge/compose.yaml`.
 3. Copie `deploy/dockge/.env.example` para o `.env` da stack.
 4. Gere os segredos:
 
@@ -36,34 +36,25 @@ bash scripts/generate-env.sh \
   /caminho/da/stack/.env
 ```
 
-5. Configure:
+5. Confirme o contrato:
 
 ```env
-HUBFISCAL_BIND_HOST=127.0.0.1
-HUBFISCAL_HTTP_PORT=58088
-HUBFISCAL_DOMAIN=hubfiscal.wwsoftwares.com.br
-HUBFISCAL_CORS_ORIGINS=https://hubfiscal.wwsoftwares.com.br
+COMPOSE_PROJECT_NAME=hubfiscal-wwsoftwares
+INSTANCE_NAME=wwsoftwares
+RESOURCE_PREFIX=hubfiscal-wwsoftwares
+
+IMAGE_REGISTRY=ghcr.io
+IMAGE_NAMESPACE=wkarts
+APP_IMAGE_TAG=latest
+
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=58088
 HUBFISCAL_DATA_ROOT=./hubfiscal-data
-MINIO_REGION=sa-east-1
-MINIO_PUBLIC_ENDPOINT=
 ```
 
 Não coloque comentários depois do valor de `HUBFISCAL_DATA_ROOT`.
 
-Incorreto:
-
-```env
-HUBFISCAL_DATA_ROOT=./hubfiscal-data sempre usar assim
-```
-
-Correto:
-
-```env
-# Sempre usar a pasta da própria stack
-HUBFISCAL_DATA_ROOT=./hubfiscal-data
-```
-
-6. Para packages privados, autentique o host no GHCR:
+6. Para packages privados, autentique o host:
 
 ```bash
 printf '%s' "$GHCR_TOKEN" |
@@ -80,15 +71,32 @@ bash deploy/docker-doctor.sh \
 
 8. Clique em **Deploy**.
 
-## Reverse proxy CloudPanel
+## Atualização automática da referência latest
 
-Configure o site `hubfiscal.wwsoftwares.com.br` para encaminhar para:
+A stack usa `pull_policy: always`. No Dockge, execute **Update** ou **Deploy** para consultar novamente:
+
+```text
+ghcr.io/wkarts/hubfiscal-api:latest
+ghcr.io/wkarts/hubfiscal-web:latest
+```
+
+Para rollback, altere temporariamente:
+
+```env
+APP_IMAGE_TAG=0.2.2
+```
+
+Depois retorne para `latest`.
+
+## Reverse proxy
+
+Configure `hubfiscal.wwsoftwares.com.br` no CloudPanel para:
 
 ```text
 http://127.0.0.1:58088
 ```
 
-Não exponha diretamente PostgreSQL, Redis, RabbitMQ ou MinIO.
+Não exponha PostgreSQL, Redis, RabbitMQ ou MinIO.
 
 ## Validação
 
@@ -101,13 +109,9 @@ docker compose \
 curl http://127.0.0.1:58088/api/v1/health/live
 ```
 
-## Atualização
-
-Altere `HUBFISCAL_IMAGE_TAG`, salve o `.env` e use **Update** ou **Deploy**. O serviço `hubfiscal-migrate` executará as migrations antes da API.
-
 ## Observações
 
 - O MinIO é próprio e executa dentro da mesma stack.
-- Os dados do MinIO ficam em `./hubfiscal-data/minio`.
+- Os dados ficam em `./hubfiscal-data/minio`.
 - Não use `docker compose down -v` em produção.
 - Faça backup de `./hubfiscal-data`.

@@ -6,7 +6,7 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yaml"
 ENV_FILE="$DEPLOY_DIR/.env"
 PENDING_ENV="$DEPLOY_DIR/.env.new"
 PREVIOUS_ENV="$DEPLOY_DIR/.env.previous"
-VERSION_FILE="$DEPLOY_DIR/.deployed-version"
+TAG_FILE="$DEPLOY_DIR/.deployed-image-tag"
 LOCK_FILE="$DEPLOY_DIR/.deploy.lock"
 
 mkdir -p "$DEPLOY_DIR"
@@ -15,7 +15,7 @@ cd "$DEPLOY_DIR"
 if command -v flock >/dev/null 2>&1; then
   exec 9>"$LOCK_FILE"
   if ! flock -n 9; then
-    echo "Já existe outro deploy do Hub Fiscal em execução." >&2
+    echo "Já existe outra atualização do Hub Fiscal em execução." >&2
     exit 1
   fi
 fi
@@ -66,9 +66,9 @@ compose_with() {
   docker compose --env-file "$env_file" -f "$COMPOSE_FILE" "$@"
 }
 
-PREVIOUS_VERSION=""
-if [[ -f "$VERSION_FILE" ]]; then
-  PREVIOUS_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+PREVIOUS_TAG=""
+if [[ -f "$TAG_FILE" ]]; then
+  PREVIOUS_TAG="$(tr -d '[:space:]' < "$TAG_FILE")"
 fi
 
 backup_database() {
@@ -78,7 +78,7 @@ backup_database() {
   data_root="$(read_env "$ENV_FILE" HUBFISCAL_DATA_ROOT 2>/dev/null || true)"
   [[ -n "$data_root" ]] || return 0
   backup_dir="$data_root/backups"
-  backup_file="$backup_dir/postgres-before-${PREVIOUS_VERSION:-unknown}-$(date -u +'%Y%m%dT%H%M%SZ').sql.gz"
+  backup_file="$backup_dir/postgres-before-${PREVIOUS_TAG:-unknown}-$(date -u +'%Y%m%dT%H%M%SZ').sql.gz"
   mkdir -p "$backup_dir"
 
   if compose_with "$ENV_FILE" ps --status running --services | grep -qx hubfiscal-postgres; then
@@ -87,7 +87,7 @@ backup_database() {
       sh -ec 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
       | gzip -9 > "$backup_file"
     if [[ ! -s "$backup_file" ]]; then
-      echo "O backup preventivo ficou vazio; deploy cancelado." >&2
+      echo "O backup preventivo ficou vazio; atualização cancelada." >&2
       rm -f "$backup_file"
       return 1
     fi
@@ -100,7 +100,7 @@ rollback() {
     return 1
   fi
 
-  echo "Restaurando versão anterior ${PREVIOUS_VERSION:-desconhecida}..."
+  echo "Restaurando configuração anterior, tag ${PREVIOUS_TAG:-desconhecida}..."
   cp "$PREVIOUS_ENV" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 
@@ -124,30 +124,30 @@ if [[ -f "$PENDING_ENV" ]]; then
 fi
 chmod 600 "$ENV_FILE"
 
-CURRENT_VERSION="$(read_env "$ENV_FILE" HUBFISCAL_IMAGE_TAG 2>/dev/null || true)"
-if [[ -z "$CURRENT_VERSION" ]]; then
-  echo "HUBFISCAL_IMAGE_TAG não definida em $ENV_FILE" >&2
+CURRENT_TAG="$(read_env "$ENV_FILE" APP_IMAGE_TAG 2>/dev/null || true)"
+if [[ -z "$CURRENT_TAG" ]]; then
+  echo "APP_IMAGE_TAG não definida em $ENV_FILE" >&2
   exit 1
 fi
 
 failure() {
   local stage="$1"
-  echo "Falha durante: $stage (versão $CURRENT_VERSION)." >&2
+  echo "Falha durante: $stage (tag $CURRENT_TAG)." >&2
   if ! rollback; then
     echo "Rollback automático não pôde ser concluído." >&2
   fi
   exit 1
 }
 
-trap 'echo "Deploy interrompido pelo sistema." >&2' INT TERM
+trap 'echo "Atualização interrompida pelo sistema." >&2' INT TERM
 
-echo "Validando Compose da versão $CURRENT_VERSION..."
+echo "Validando Compose com APP_IMAGE_TAG=$CURRENT_TAG..."
 compose_with "$ENV_FILE" config --quiet || failure "validação do Compose"
 
-echo "Baixando imagens da versão $CURRENT_VERSION..."
+echo "Baixando imagens APP_IMAGE_TAG=$CURRENT_TAG..."
 compose_with "$ENV_FILE" pull || failure "download das imagens"
 
-echo "Aplicando stack Hub Fiscal $CURRENT_VERSION..."
+echo "Aplicando stack Hub Fiscal..."
 compose_with "$ENV_FILE" up -d --remove-orphans --force-recreate \
   || failure "inicialização dos containers"
 
@@ -155,7 +155,7 @@ if ! "$DEPLOY_DIR/healthcheck.sh" "$DEPLOY_DIR"; then
   failure "health check"
 fi
 
-printf '%s\n' "$CURRENT_VERSION" > "$VERSION_FILE"
+printf '%s\n' "$CURRENT_TAG" > "$TAG_FILE"
 compose_with "$ENV_FILE" ps
 
-echo "Deploy Hub Fiscal $CURRENT_VERSION concluído com sucesso."
+echo "Hub Fiscal atualizado com APP_IMAGE_TAG=$CURRENT_TAG."

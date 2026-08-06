@@ -50,8 +50,8 @@ compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
-HTTP_PORT="$(read_env HUBFISCAL_HTTP_PORT 2>/dev/null || true)"
-HTTP_PORT="${HTTP_PORT:-8088}"
+HTTP_PORT="$(read_env WEB_PUBLISHED_PORT 2>/dev/null || true)"
+HTTP_PORT="${HTTP_PORT:-58088}"
 URL="http://127.0.0.1:${HTTP_PORT}/api/v1/health/live"
 
 for ((attempt=1; attempt<=ATTEMPTS; attempt++)); do

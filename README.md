@@ -2,7 +2,7 @@
 
 Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para captura, armazenamento, consulta e distribuição de documentos fiscais eletrônicos.
 
-**Versão atual:** `0.2.2`
+**Versão atual:** `0.2.3`
 
 ## Stack
 
@@ -56,21 +56,37 @@ deploy/dockge/
 deploy/portainer/
 ```
 
-O CloudPanel atua somente como reverse proxy. O padrão de produção é:
+O padrão operacional segue o mesmo contrato usado no Auditor Fiscal:
 
 ```env
-HUBFISCAL_BIND_HOST=127.0.0.1
-HUBFISCAL_HTTP_PORT=58088
+COMPOSE_PROJECT_NAME=hubfiscal-wwsoftwares
+INSTANCE_NAME=wwsoftwares
+RESOURCE_PREFIX=hubfiscal-wwsoftwares
+
+IMAGE_REGISTRY=ghcr.io
+IMAGE_NAMESPACE=wkarts
+APP_IMAGE_TAG=latest
+
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=58088
 HUBFISCAL_DATA_ROOT=./hubfiscal-data
 ```
 
-No CloudPanel, direcione o domínio para:
+`latest` acompanha a última release **estável** publicada. Tags exatas `X.Y.Z` continuam sendo produzidas para auditoria, homologação e rollback.
+
+O Compose usa `pull_policy: always` nas imagens API e Web. Ao atualizar a stack no Dockge ou Portainer, a referência `latest` é consultada novamente no GHCR.
+
+### CloudPanel
+
+O CloudPanel atua somente como reverse proxy HTTPS. Aponte o domínio para:
 
 ```text
 http://127.0.0.1:58088
 ```
 
-Exemplo pela linha de comando:
+Não existe workflow SSH conectando ao seu servidor.
+
+### Inicialização
 
 ```bash
 bash scripts/generate-env.sh deploy/dockge/.env.example .env
@@ -92,7 +108,7 @@ bash scripts/check-version.sh
 python3 scripts/set-version.py --bump patch
 ```
 
-A versão é sincronizada entre API, frontend e todos os ambientes de deploy.
+`VERSION` sincroniza API, frontend e metadados de release. Ele **não altera** `APP_IMAGE_TAG=latest`.
 
 ## Release automática
 
@@ -108,9 +124,10 @@ Após o merge da PR de versão, o workflow **Release** publica:
 - pacotes CloudPanel, Dockge e Portainer;
 - `release-manifest.json` e `SHA256SUMS`;
 - imagens API e Web para `linux/amd64` e `linux/arm64`;
+- tags exatas `X.Y.Z` e alias `latest` para releases estáveis;
 - proveniência e SBOM.
 
-O GitHub não acessa o servidor. A atualização da stack é executada manualmente no Docker, Dockge ou Portainer.
+O GitHub não acessa o servidor. A atualização da stack é executada pelo operador no Docker, Dockge ou Portainer.
 
 Consulte [`docs/RELEASE.md`](docs/RELEASE.md) e [`docs/DEPLOY-CLOUDPANEL.md`](docs/DEPLOY-CLOUDPANEL.md).
 

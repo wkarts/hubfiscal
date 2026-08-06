@@ -2,20 +2,14 @@
 
 ## Pré-requisitos
 
-- endpoint Docker Standalone ou Swarm com Docker Compose compatível;
+- endpoint Docker Standalone com Compose compatível;
 - acesso do host ao GHCR;
 - diretório persistente configurado em `HUBFISCAL_DATA_ROOT`;
-- registro `ghcr.io` cadastrado quando as imagens forem privadas.
+- registry `ghcr.io` cadastrado quando as imagens forem privadas.
 
 ## Registry privado
 
-No Portainer, abra:
-
-```text
-Registries → Add registry → Custom registry
-```
-
-Configure:
+Em **Registries → Add registry → Custom registry**:
 
 ```text
 Registry URL: ghcr.io
@@ -26,50 +20,65 @@ Password: PAT com read:packages
 ## Criação da stack
 
 1. Abra **Stacks → Add stack**.
-2. Use o nome `hubfiscal`.
-3. Cole `compose.yaml` no editor ou selecione o repositório Git.
-4. Cadastre as variáveis existentes em `.env.example`.
-5. Gere previamente os valores de segredo; não mantenha `change-me-*`.
+2. Use `hubfiscal-wwsoftwares`.
+3. Cole `deploy/portainer/compose.yaml` ou selecione o repositório Git.
+4. Cadastre as variáveis de `deploy/portainer/.env.example`.
+5. Gere os segredos e remova todos os `change-me-*`.
 6. Clique em **Deploy the stack**.
 
-Quando usar o método Git repository, informe:
+No método Git repository:
 
 ```text
 Compose path: deploy/portainer/compose.yaml
 ```
 
-As variáveis ainda devem ser cadastradas no Portainer, porque `.env.example` não é carregado automaticamente.
+## Contrato principal
 
-## Persistência
+```env
+COMPOSE_PROJECT_NAME=hubfiscal-wwsoftwares
+INSTANCE_NAME=wwsoftwares
+RESOURCE_PREFIX=hubfiscal-wwsoftwares
 
-Valor recomendado:
+IMAGE_REGISTRY=ghcr.io
+IMAGE_NAMESPACE=wkarts
+APP_IMAGE_TAG=latest
 
-```text
-HUBFISCAL_DATA_ROOT=/opt/hubfiscal/data
+WEB_BIND_HOST=127.0.0.1
+WEB_PUBLISHED_PORT=58088
+HUBFISCAL_DATA_ROOT=./hubfiscal-data
 ```
 
-O usuário do Docker precisa escrever nesse diretório. A stack cria os subdiretórios necessários usando `hubfiscal-storage-init`.
+Quando o Portainer não resolver caminhos relativos no método escolhido, use um caminho absoluto, por exemplo:
 
-## Acesso
-
-Sem proxy reverso:
-
-```text
-HUBFISCAL_BIND_HOST=0.0.0.0
-HUBFISCAL_HTTP_PORT=8088
+```env
+HUBFISCAL_DATA_ROOT=/opt/hubfiscal-wwsoftwares/hubfiscal-data
 ```
 
-A aplicação ficará em `http://IP_DO_SERVIDOR:8088`.
-
-Atrás de proxy no mesmo host, prefira:
+## Reverse proxy CloudPanel
 
 ```text
-HUBFISCAL_BIND_HOST=127.0.0.1
+http://127.0.0.1:58088
 ```
+
+Sem proxy reverso, altere `WEB_BIND_HOST=0.0.0.0` e proteja a porta com firewall.
 
 ## Atualização
 
-Altere `HUBFISCAL_IMAGE_TAG` e use **Pull latest image and redeploy**. A tag deve existir no GHCR; não use `latest` como única referência em produção.
+A implantação usa `APP_IMAGE_TAG=latest` e `pull_policy: always`.
+
+No Portainer:
+
+1. abra a stack;
+2. marque **Pull latest image**;
+3. use **Update the stack**.
+
+Para rollback, fixe temporariamente uma versão:
+
+```env
+APP_IMAGE_TAG=0.2.2
+```
+
+Depois retorne para `latest`.
 
 ## Diagnóstico no host
 
@@ -80,4 +89,8 @@ docker compose \
   --env-file deploy/portainer/.env \
   -f deploy/portainer/compose.yaml \
   ps -a
+
+curl http://127.0.0.1:58088/api/v1/health/live
 ```
+
+Não execute `docker compose down -v` em produção.

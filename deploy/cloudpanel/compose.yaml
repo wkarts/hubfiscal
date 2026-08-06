@@ -1,12 +1,18 @@
 name: ${COMPOSE_PROJECT_NAME:-hubfiscal}
 
+# Imagens oficiais. Para fork ou registry privado, sobrescreva no .env.
+x-api-image: &api-image ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-wkarts}/hubfiscal-api:${APP_IMAGE_TAG:-latest}
+x-web-image: &web-image ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-wkarts}/hubfiscal-web:${APP_IMAGE_TAG:-latest}
+
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: ${DOCKER_LOG_MAX_SIZE:-10m}
-    max-file: ${DOCKER_LOG_MAX_FILES:-5}
+    max-size: ${LOG_MAX_SIZE:-20m}
+    max-file: ${LOG_MAX_FILES:-5}
 
 x-api-environment: &api-environment
+  APP_NAME: ${APP_NAME:-Hub Fiscal}
+  TZ: ${APP_TIMEZONE:-America/Bahia}
   HUBFISCAL_ENV: ${HUBFISCAL_ENV:-production}
   HUBFISCAL_DEBUG: ${HUBFISCAL_DEBUG:-false}
   HUBFISCAL_SECRET_KEY: ${HUBFISCAL_SECRET_KEY:?HUBFISCAL_SECRET_KEY obrigatória}
@@ -16,9 +22,6 @@ x-api-environment: &api-environment
   HUBFISCAL_REFRESH_TOKEN_DAYS: ${HUBFISCAL_REFRESH_TOKEN_DAYS:-30}
   HUBFISCAL_CORS_ORIGINS: ${HUBFISCAL_CORS_ORIGINS:?HUBFISCAL_CORS_ORIGINS obrigatória}
   HUBFISCAL_LOG_LEVEL: ${HUBFISCAL_LOG_LEVEL:-INFO}
-  HUBFISCAL_BUILD_SHA: ${HUBFISCAL_BUILD_SHA:-unknown}
-  HUBFISCAL_BUILD_DATE: ${HUBFISCAL_BUILD_DATE:-unknown}
-  HUBFISCAL_BUILD_REF: ${HUBFISCAL_BUILD_REF:-docker}
   POSTGRES_HOST: hubfiscal-postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB:-hubfiscal}
@@ -42,7 +45,8 @@ x-api-environment: &api-environment
   MINIO_SECURE: "false"
 
 x-app-common: &app-common
-  image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/hubfiscal-api:${HUBFISCAL_IMAGE_TAG:-0.2.1}
+  image: *api-image
+  pull_policy: always
   restart: unless-stopped
   environment: *api-environment
   networks:
@@ -51,10 +55,13 @@ x-app-common: &app-common
   security_opt:
     - no-new-privileges:true
   stop_grace_period: 45s
+  labels:
+    io.hubfiscal.instance: ${INSTANCE_NAME:-default}
+    io.hubfiscal.image-tag: ${APP_IMAGE_TAG:-latest}
 
 services:
   hubfiscal-storage-init:
-    image: alpine:3.22
+    image: ${STORAGE_INIT_IMAGE:-alpine:3.22}
     restart: "no"
     user: "0:0"
     volumes:
@@ -67,7 +74,9 @@ services:
           mkdir -p "/data/$directory"
         done
         chmod 0755 /data
-        chmod 0770 /data/postgres /data/redis /data/rabbitmq /data/minio /data/celery /data/backups
+        chmod 0777 /data/postgres /data/redis /data/rabbitmq /data/minio /data/backups
+        chown -R ${API_RUNTIME_UID:-10001}:${API_RUNTIME_GID:-10001} /data/celery
+        chmod 0770 /data/celery
     networks:
       - hubfiscal-network
     logging: *default-logging
@@ -83,6 +92,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-hubfiscal}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatória}
       PGDATA: /var/lib/postgresql/data/pgdata
+      TZ: ${APP_TIMEZONE:-America/Bahia}
     volumes:
       - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -125,6 +135,7 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-hubfiscal}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD obrigatória}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+      TZ: ${APP_TIMEZONE:-America/Bahia}
     volumes:
       - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/rabbitmq:/var/lib/rabbitmq
     healthcheck:
@@ -138,7 +149,7 @@ services:
     logging: *default-logging
 
   hubfiscal-minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}
     restart: unless-stopped
     depends_on:
       hubfiscal-storage-init:
@@ -147,6 +158,8 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_USER:-hubfiscal}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD obrigatória}
+      MINIO_REGION_NAME: ${MINIO_REGION:-sa-east-1}
+      TZ: ${APP_TIMEZONE:-America/Bahia}
     volumes:
       - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/minio:/data
     healthcheck:
@@ -160,7 +173,7 @@ services:
     logging: *default-logging
 
   hubfiscal-minio-init:
-    image: ${MINIO_MC_IMAGE:-minio/mc:latest}
+    image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
     restart: "no"
     depends_on:
       hubfiscal-minio:
@@ -201,10 +214,10 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/v1/health/live"]
-      interval: 20s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 45s
     tmpfs:
       - /tmp:size=256m,mode=1777
 
@@ -230,26 +243,30 @@ services:
       - ${HUBFISCAL_DATA_ROOT:-./hubfiscal-data}/celery:/tmp/celery
 
   hubfiscal-web:
-    image: ${GHCR_REGISTRY:-ghcr.io}/${GHCR_NAMESPACE:-wkarts}/hubfiscal-web:${HUBFISCAL_IMAGE_TAG:-0.2.1}
+    image: *web-image
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       hubfiscal-api:
         condition: service_healthy
     ports:
-      - ${HUBFISCAL_BIND_HOST:-127.0.0.1}:${HUBFISCAL_HTTP_PORT:-58088}:80
+      - ${WEB_BIND_HOST:-127.0.0.1}:${WEB_PUBLISHED_PORT:-58088}:80
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
-      interval: 20s
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 15s
       timeout: 5s
-      retries: 20
+      retries: 10
       start_period: 20s
     networks:
       - hubfiscal-network
     logging: *default-logging
     security_opt:
       - no-new-privileges:true
+    labels:
+      io.hubfiscal.instance: ${INSTANCE_NAME:-default}
+      io.hubfiscal.image-tag: ${APP_IMAGE_TAG:-latest}
 
 networks:
   hubfiscal-network:
-    name: ${COMPOSE_PROJECT_NAME:-hubfiscal}-network
+    name: ${RESOURCE_PREFIX:-hubfiscal}_network
     driver: bridge
