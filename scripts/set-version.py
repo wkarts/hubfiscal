@@ -50,21 +50,17 @@ def replace_project_version(path: Path, version: str) -> None:
     path.write_text(updated, encoding="utf-8")
 
 
-def update_env_version(path: Path, version: str) -> None:
+def update_frontend_example(version: str) -> None:
+    path = ROOT / ".env.example"
     content = path.read_text(encoding="utf-8")
     updated, count = re.subn(
-        r"(?m)^HUBFISCAL_IMAGE_TAG=.*$",
-        f"HUBFISCAL_IMAGE_TAG={version}",
+        r"(?m)^VITE_APP_VERSION=.*$",
+        f"VITE_APP_VERSION={version}",
         content,
         count=1,
     )
     if count != 1:
-        raise SystemExit(f"HUBFISCAL_IMAGE_TAG ausente em {path}")
-    updated = re.sub(
-        r"(?m)^VITE_APP_VERSION=.*$",
-        f"VITE_APP_VERSION={version}",
-        updated,
-    )
+        raise SystemExit(f"VITE_APP_VERSION ausente em {path}")
     path.write_text(updated, encoding="utf-8")
 
 
@@ -105,14 +101,11 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    for env_path in (
-        ROOT / ".env.example",
-        ROOT / "deploy/cloudpanel/.env.example",
-        ROOT / "deploy/dockge/.env.example",
-        ROOT / "deploy/portainer/.env.example",
-    ):
-        update_env_version(env_path, version)
+    update_frontend_example(version)
 
+    # APP_IMAGE_TAG é deliberadamente independente de VERSION. O padrão de
+    # implantação permanece `latest`; tags SemVer continuam disponíveis para
+    # auditoria, homologação e rollback.
     print(version)
 
 
