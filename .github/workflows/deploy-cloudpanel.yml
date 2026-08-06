@@ -34,7 +34,7 @@ jobs:
       version: ${{ steps.config.outputs.version }}
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
 
@@ -96,7 +96,7 @@ jobs:
       HUBFISCAL_REFRESH_TOKEN_DAYS: ${{ vars.HUBFISCAL_REFRESH_TOKEN_DAYS || '30' }}
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
 
