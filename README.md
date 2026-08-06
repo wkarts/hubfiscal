@@ -2,7 +2,7 @@
 
 Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para captura, armazenamento, consulta e distribuição de documentos fiscais eletrônicos.
 
-**Versão atual:** `0.2.3`
+**Versão atual:** `0.2.4`
 
 ## Stack
 
@@ -93,6 +93,8 @@ bash scripts/generate-env.sh deploy/dockge/.env.example .env
 bash deploy/docker-doctor.sh deploy/dockge/compose.yaml .env
 bash deploy/start.sh deploy/dockge/compose.yaml .env
 ```
+
+O `docker-doctor.sh` valida a interpolação do Compose sem warnings e executa o `hubfiscal-storage-init` como preflight idempotente. O storage-init cria explicitamente os diretórios persistentes, evitando que variáveis de shell sejam interpretadas pelo Docker Compose.
 
 A aplicação constrói internamente as URLs do PostgreSQL, Redis e RabbitMQ. As senhas podem conter caracteres especiais sem quebrar os endereços de conexão.
 
