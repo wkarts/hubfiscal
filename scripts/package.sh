@@ -16,24 +16,49 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  git archive --format=zip --prefix="$PREFIX" HEAD > "$OUT_DIR/hubfiscal-${VERSION}-source.zip"
-  git archive --format=tar --prefix="$PREFIX" HEAD | gzip -n > "$OUT_DIR/hubfiscal-${VERSION}-source.tar.gz"
+  git archive --format=zip --prefix="$PREFIX" HEAD \
+    > "$OUT_DIR/hubfiscal-${VERSION}-source.zip"
+  git archive --format=tar --prefix="$PREFIX" HEAD \
+    | gzip -n > "$OUT_DIR/hubfiscal-${VERSION}-source.tar.gz"
 else
   zip -qr "$OUT_DIR/hubfiscal-${VERSION}-source.zip" . \
-    -x '.git/*' '.env' 'local-data/*' 'node_modules/*' '*/node_modules/*' 'release-assets/*'
-  tar --exclude='.git' --exclude='.env' --exclude='local-data' --exclude='node_modules' \
-    --exclude='release-assets' -czf "$OUT_DIR/hubfiscal-${VERSION}-source.tar.gz" .
+    -x '.git/*' '.env' 'local-data/*' 'node_modules/*' \
+    '*/node_modules/*' 'release-assets/*'
+  tar --exclude='.git' --exclude='.env' --exclude='local-data' \
+    --exclude='node_modules' --exclude='release-assets' \
+    -czf "$OUT_DIR/hubfiscal-${VERSION}-source.tar.gz" .
 fi
 
-CLOUDPANEL_STAGE="$(mktemp -d)"
-trap 'rm -rf "$CLOUDPANEL_STAGE"' EXIT
-mkdir -p "$CLOUDPANEL_STAGE/hubfiscal-cloudpanel-${VERSION}"
-cp deploy/cloudpanel/compose.yaml "$CLOUDPANEL_STAGE/hubfiscal-cloudpanel-${VERSION}/compose.yaml"
-cp deploy/cloudpanel/.env.example "$CLOUDPANEL_STAGE/hubfiscal-cloudpanel-${VERSION}/.env.example"
-cp deploy/cloudpanel/deploy.sh "$CLOUDPANEL_STAGE/hubfiscal-cloudpanel-${VERSION}/deploy.sh"
-cp deploy/cloudpanel/healthcheck.sh "$CLOUDPANEL_STAGE/hubfiscal-cloudpanel-${VERSION}/healthcheck.sh"
-cp docs/DEPLOY-CLOUDPANEL.md "$CLOUDPANEL_STAGE/hubfiscal-cloudpanel-${VERSION}/README.md"
-tar -C "$CLOUDPANEL_STAGE" -czf "$OUT_DIR/hubfiscal-${VERSION}-cloudpanel.tar.gz" "hubfiscal-cloudpanel-${VERSION}"
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+
+package_platform() {
+  local platform="$1"
+  local documentation="$2"
+  local package_name="hubfiscal-${platform}-${VERSION}"
+  local destination="$STAGE/$package_name"
+
+  mkdir -p "$destination"
+  cp "deploy/$platform/compose.yaml" "$destination/compose.yaml"
+  cp "deploy/$platform/.env.example" "$destination/.env.example"
+  cp "$documentation" "$destination/README.md"
+  cp deploy/docker-doctor.sh "$destination/docker-doctor.sh"
+  cp deploy/start.sh "$destination/start.sh"
+
+  if [[ "$platform" == "cloudpanel" ]]; then
+    cp deploy/cloudpanel/deploy.sh "$destination/deploy.sh"
+    cp deploy/cloudpanel/healthcheck.sh "$destination/healthcheck.sh"
+  fi
+
+  chmod 700 "$destination"/*.sh
+  tar -C "$STAGE" -czf \
+    "$OUT_DIR/hubfiscal-${VERSION}-${platform}.tar.gz" \
+    "$package_name"
+}
+
+package_platform cloudpanel docs/DEPLOY-CLOUDPANEL.md
+package_platform dockge deploy/dockge/README.md
+package_platform portainer deploy/portainer/README.md
 
 python3 - "$OUT_DIR" "$VERSION" "$TAG" "$SHA" "$BUILT_AT" <<'PY'
 from __future__ import annotations
@@ -50,7 +75,13 @@ for path in sorted(out.iterdir()):
     if not path.is_file():
         continue
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    artifacts.append({"name": path.name, "sha256": digest, "size": path.stat().st_size})
+    artifacts.append(
+        {
+            "name": path.name,
+            "sha256": digest,
+            "size": path.stat().st_size,
+        }
+    )
 manifest = {
     "product": "Hub Fiscal",
     "version": version,
@@ -62,6 +93,7 @@ manifest = {
         f"ghcr.io/wkarts/hubfiscal-api:{version}",
         f"ghcr.io/wkarts/hubfiscal-web:{version}",
     ],
+    "deployment_packages": ["cloudpanel", "dockge", "portainer"],
 }
 (out / "release-manifest.json").write_text(
     json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

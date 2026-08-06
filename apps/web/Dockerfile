@@ -1,7 +1,10 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
+ENV npm_config_audit=false \
+    npm_config_fund=false \
+    npm_config_update_notifier=false
 COPY apps/web/package*.json ./
-RUN npm install
+RUN npm install --include=dev --no-audit --no-fund
 COPY apps/web ./
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}

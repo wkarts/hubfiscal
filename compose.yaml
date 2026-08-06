@@ -1,158 +1,192 @@
 name: ${COMPOSE_PROJECT_NAME:-hubfiscal}
 
-x-api-env: &api-env
-  HUBFISCAL_ENV: ${HUBFISCAL_ENV:-development}
-  HUBFISCAL_DEBUG: ${HUBFISCAL_DEBUG:-true}
-  HUBFISCAL_SECRET_KEY: ${HUBFISCAL_SECRET_KEY}
-  HUBFISCAL_ENCRYPTION_KEY: ${HUBFISCAL_ENCRYPTION_KEY}
-  HUBFISCAL_BOOTSTRAP_TOKEN: ${HUBFISCAL_BOOTSTRAP_TOKEN}
-  HUBFISCAL_ACCESS_TOKEN_MINUTES: ${HUBFISCAL_ACCESS_TOKEN_MINUTES:-60}
-  HUBFISCAL_REFRESH_TOKEN_DAYS: ${HUBFISCAL_REFRESH_TOKEN_DAYS:-30}
-  HUBFISCAL_CORS_ORIGINS: ${HUBFISCAL_CORS_ORIGINS:-http://localhost:3000}
-  HUBFISCAL_LOG_LEVEL: ${HUBFISCAL_LOG_LEVEL:-INFO}
-  DATABASE_URL: ${DATABASE_URL}
-  DATABASE_URL_SYNC: ${DATABASE_URL_SYNC}
-  REDIS_URL: ${REDIS_URL}
-  CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-  MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-  MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
-  MINIO_BUCKET: ${MINIO_BUCKET:-hubfiscal-documents}
-  MINIO_REGION: ${MINIO_REGION:-us-east-1}
-  MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-  MINIO_SECURE: ${MINIO_SECURE:-false}
-
 x-api-build: &api-build
   context: .
   dockerfile: apps/api/Dockerfile
 
+x-api-environment: &api-environment
+  HUBFISCAL_ENV: ${HUBFISCAL_ENV:-development}
+  HUBFISCAL_DEBUG: ${HUBFISCAL_DEBUG:-true}
+  HUBFISCAL_SECRET_KEY: ${HUBFISCAL_SECRET_KEY:?HUBFISCAL_SECRET_KEY obrigatória}
+  HUBFISCAL_ENCRYPTION_KEY: ${HUBFISCAL_ENCRYPTION_KEY:?HUBFISCAL_ENCRYPTION_KEY obrigatória}
+  HUBFISCAL_BOOTSTRAP_TOKEN: ${HUBFISCAL_BOOTSTRAP_TOKEN:?HUBFISCAL_BOOTSTRAP_TOKEN obrigatória}
+  HUBFISCAL_ACCESS_TOKEN_MINUTES: ${HUBFISCAL_ACCESS_TOKEN_MINUTES:-60}
+  HUBFISCAL_REFRESH_TOKEN_DAYS: ${HUBFISCAL_REFRESH_TOKEN_DAYS:-30}
+  HUBFISCAL_CORS_ORIGINS: ${HUBFISCAL_CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
+  HUBFISCAL_LOG_LEVEL: ${HUBFISCAL_LOG_LEVEL:-INFO}
+  HUBFISCAL_AUTO_MIGRATE: "false"
+  POSTGRES_HOST: hubfiscal-postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-hubfiscal}
+  POSTGRES_USER: ${POSTGRES_USER:-hubfiscal}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatória}
+  REDIS_HOST: hubfiscal-redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  CELERY_RESULT_REDIS_DB: "1"
+  RABBITMQ_HOST: hubfiscal-rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USER: ${RABBITMQ_USER:-hubfiscal}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD obrigatória}
+  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+  MINIO_ENDPOINT: http://hubfiscal-minio:9000
+  MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+  MINIO_BUCKET: ${MINIO_BUCKET:-hubfiscal-documents}
+  MINIO_REGION: ${MINIO_REGION:-us-east-1}
+  MINIO_ROOT_USER: ${MINIO_USER:-hubfiscal}
+  MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD obrigatória}
+  MINIO_SECURE: "false"
+
+x-app-common: &app-common
+  build: *api-build
+  environment: *api-environment
+  networks:
+    - hubfiscal-network
+
 services:
   hubfiscal-postgres:
-    image: postgres:17-alpine
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hubfiscal}
       POSTGRES_USER: ${POSTGRES_USER:-hubfiscal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      TZ: America/Bahia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatória}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - hubfiscal-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hubfiscal} -d ${POSTGRES_DB:-hubfiscal}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
-      retries: 15
-    networks: [hubfiscal-network]
+      retries: 20
+      start_period: 15s
+    networks:
+      - hubfiscal-network
 
   hubfiscal-redis:
-    image: redis:8-alpine
+    image: ${REDIS_IMAGE:-redis:8-alpine}
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
     volumes:
       - hubfiscal-redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
-      retries: 15
-    networks: [hubfiscal-network]
+      retries: 20
+    networks:
+      - hubfiscal-network
 
   hubfiscal-rabbitmq:
-    image: rabbitmq:4-management-alpine
+    image: ${RABBITMQ_IMAGE:-rabbitmq:4-management-alpine}
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-hubfiscal}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-hubfiscal}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD obrigatória}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
     ports:
-      - "127.0.0.1:15672:15672"
+      - 127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672
     volumes:
       - hubfiscal-rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 15s
       timeout: 5s
-      retries: 15
-    networks: [hubfiscal-network]
+      retries: 20
+      start_period: 20s
+    networks:
+      - hubfiscal-network
 
   hubfiscal-minio:
-    image: minio/minio:latest
+    image: ${MINIO_IMAGE:-minio/minio:latest}
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_USER:-hubfiscal}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD obrigatória}
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - 127.0.0.1:${MINIO_API_PORT:-9000}:9000
+      - 127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001
     volumes:
       - hubfiscal-minio-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
-      retries: 15
-    networks: [hubfiscal-network]
+      retries: 20
+      start_period: 20s
+    networks:
+      - hubfiscal-network
 
   hubfiscal-minio-init:
-    image: minio/mc:latest
+    image: ${MINIO_MC_IMAGE:-minio/mc:latest}
     restart: "no"
     depends_on:
       hubfiscal-minio:
         condition: service_healthy
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_USER:-hubfiscal}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD obrigatória}
       MINIO_BUCKET: ${MINIO_BUCKET:-hubfiscal-documents}
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: ["/bin/sh", "-ec"]
     command:
-      - >-
-        mc alias set local http://hubfiscal-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
-        mc mb --ignore-existing local/"$${MINIO_BUCKET}" &&
-        mc anonymous set none local/"$${MINIO_BUCKET}"
-    networks: [hubfiscal-network]
+      - |
+        mc alias set local http://hubfiscal-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
+        mc anonymous set none "local/$${MINIO_BUCKET}"
+    networks:
+      - hubfiscal-network
+
+  hubfiscal-migrate:
+    <<: *app-common
+    restart: "no"
+    command: ["migrate"]
+    depends_on:
+      hubfiscal-postgres:
+        condition: service_healthy
+      hubfiscal-redis:
+        condition: service_healthy
+      hubfiscal-rabbitmq:
+        condition: service_healthy
 
   hubfiscal-api:
-    build: *api-build
+    <<: *app-common
     restart: unless-stopped
     command: ["api"]
-    environment: *api-env
     depends_on:
-      hubfiscal-postgres: { condition: service_healthy }
-      hubfiscal-redis: { condition: service_healthy }
-      hubfiscal-rabbitmq: { condition: service_healthy }
-      hubfiscal-minio-init: { condition: service_completed_successfully }
+      hubfiscal-migrate:
+        condition: service_completed_successfully
+      hubfiscal-minio-init:
+        condition: service_completed_successfully
     ports:
-      - "8080:8080"
+      - ${HUBFISCAL_API_PORT:-8080}:8080
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/v1/health/live"]
       interval: 20s
       timeout: 5s
-      retries: 15
-    networks: [hubfiscal-network]
+      retries: 20
+      start_period: 25s
 
   hubfiscal-worker:
-    build: *api-build
+    <<: *app-common
     restart: unless-stopped
     command: ["worker"]
-    environment:
-      <<: *api-env
-      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-2}
     depends_on:
-      hubfiscal-api: { condition: service_healthy }
-    networks: [hubfiscal-network]
+      hubfiscal-api:
+        condition: service_healthy
+    environment:
+      <<: *api-environment
+      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-2}
 
   hubfiscal-beat:
-    build: *api-build
+    <<: *app-common
     restart: unless-stopped
     command: ["beat"]
-    environment: *api-env
     depends_on:
-      hubfiscal-api: { condition: service_healthy }
+      hubfiscal-api:
+        condition: service_healthy
     volumes:
       - hubfiscal-beat-data:/tmp/celery
-    networks: [hubfiscal-network]
 
   hubfiscal-web:
     build:
@@ -162,15 +196,18 @@ services:
         VITE_API_BASE_URL: /api/v1
     restart: unless-stopped
     depends_on:
-      hubfiscal-api: { condition: service_healthy }
+      hubfiscal-api:
+        condition: service_healthy
     ports:
-      - "3000:80"
+      - ${HUBFISCAL_WEB_PORT:-3000}:80
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/health"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
       interval: 20s
       timeout: 5s
-      retries: 15
-    networks: [hubfiscal-network]
+      retries: 20
+      start_period: 20s
+    networks:
+      - hubfiscal-network
 
 networks:
   hubfiscal-network:
