@@ -1,13 +1,67 @@
-# Validação do pacote 0.1.0
+# Validação do Hub Fiscal
 
-Validações executadas no pacote gerado:
+A CI valida cada Pull Request e cada push em `main`.
 
-- Compilação estática dos módulos Python com `compileall`.
-- Testes automatizados do backend com `pytest`.
-- Leitura e validação sintática dos arquivos YAML de Compose e GitHub Actions.
-- Validação sintática dos scripts Bash.
-- Validação dos arquivos JSON do frontend.
+## Contrato de versão e imagem
 
-## Observação sobre o frontend
+- `VERSION`, API, pacote Python, frontend e `VITE_APP_VERSION` precisam coincidir.
+- Os ambientes de produção precisam manter `APP_IMAGE_TAG=latest`.
+- `set-version.py` não pode alterar a tag operacional `latest`.
+- Os quatro Compose de produção precisam ser byte a byte idênticos.
+- API e Web precisam declarar fallback `${APP_IMAGE_TAG:-latest}`.
+- As imagens da aplicação precisam declarar `pull_policy: always`.
 
-O build do Vue é executado pelo workflow de CI usando o registro público do npm. No ambiente de geração deste pacote, o proxy npm interno não disponibilizou alguns pacotes oficiais com escopo (`@vitejs`, `@types`), portanto não foi possível concluir o download das dependências nessa máquina. Isso não altera os arquivos do projeto; o workflow executará `npm install` e `npm run build` em um runner GitHub com acesso normal ao npm.
+## Docker
+
+São validados:
+
+```text
+compose.yaml
+compose.production.yaml
+deploy/cloudpanel/compose.yaml
+deploy/dockge/compose.yaml
+deploy/portainer/compose.yaml
+```
+
+O job executa:
+
+- `docker compose config --quiet` com cada `.env.example`;
+- build da API de desenvolvimento;
+- build do frontend de desenvolvimento;
+- build das imagens-base reais;
+- build da API de produção;
+- build do frontend de produção.
+
+## Backend
+
+- Ruff;
+- `compileall`;
+- Pytest;
+- testes das URLs internas com credenciais escapadas;
+- validação de configurações explícitas e automáticas.
+
+## Frontend
+
+- instalação do lock/contrato de dependências;
+- TypeScript e `vue-tsc`;
+- build Vite de produção.
+
+## Release
+
+O empacotamento é executado na CI e precisa gerar:
+
+```text
+source ZIP
+source TAR.GZ
+pacote CloudPanel
+pacote Dockge
+pacote Portainer
+release-manifest.json
+SHA256SUMS
+```
+
+O manifesto registra a versão exata e a tag operacional `latest`.
+
+## Segurança
+
+O workflow de segurança executa Trivy e publica o resultado SARIF no GitHub Code Scanning.
