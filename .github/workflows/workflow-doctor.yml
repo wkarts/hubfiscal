@@ -1,0 +1,22 @@
+name: Workflow Doctor
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  doctor:
+    name: GitHub Actions está operacional
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirmar gatilho
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
+          echo "GitHub Actions operacional."
