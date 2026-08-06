@@ -96,25 +96,30 @@ fi
 
 data_root="$(read_env HUBFISCAL_DATA_ROOT 2>/dev/null || true)"
 if [[ -n "$data_root" ]]; then
-  if mkdir -p "$data_root" 2>/dev/null && [[ -w "$data_root" ]]; then
+  if [[ "$data_root" =~ [[:space:]] ]]; then
+    fail "HUBFISCAL_DATA_ROOT contém espaço ou comentário no valor: $data_root"
+  elif [[ "$data_root" != /* && "$data_root" != ./* && "$data_root" != ../* ]]; then
+    fail "HUBFISCAL_DATA_ROOT relativo deve começar com ./ ou ../: $data_root"
+  elif mkdir -p "$data_root" 2>/dev/null && [[ -w "$data_root" ]]; then
     ok "Diretório persistente gravável: $data_root"
   else
     fail "Diretório persistente sem permissão de escrita: $data_root"
   fi
 fi
 
+http_port="$(read_env HUBFISCAL_HTTP_PORT 2>/dev/null || echo 58088)"
+if [[ ! "$http_port" =~ ^[0-9]+$ ]] || (( http_port < 1 || http_port > 65535 )); then
+  fail "HUBFISCAL_HTTP_PORT inválida: $http_port"
+elif command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$http_port" | grep -q LISTEN; then
+  fail "A porta $http_port já está em uso."
+else
+  ok "Porta web $http_port aparentemente disponível."
+fi
+
 if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet; then
   ok "Interpolação e sintaxe do Docker Compose aprovadas."
 else
   fail "Docker Compose inválido para o ambiente informado."
-fi
-
-bind_host="$(read_env HUBFISCAL_BIND_HOST 2>/dev/null || echo 127.0.0.1)"
-http_port="$(read_env HUBFISCAL_HTTP_PORT 2>/dev/null || echo 8088)"
-if command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$http_port" | grep -q LISTEN; then
-  fail "A porta $http_port já está em uso em $bind_host."
-else
-  ok "Porta web $http_port aparentemente disponível."
 fi
 
 if [[ "$PULL_IMAGES" == "true" ]]; then
