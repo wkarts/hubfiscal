@@ -31,7 +31,7 @@ jobs:
       build_date: ${{ steps.version.outputs.build_date }}
       commit_sha: ${{ steps.version.outputs.commit_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -79,14 +79,13 @@ jobs:
     if: needs.metadata.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit_sha }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-          cache: pip
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Validar contrato
@@ -154,25 +153,29 @@ jobs:
             dockerfile: docker/base/web-base.Dockerfile
             tag: node24-v1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit_sha }}
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+          cache-image: false
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - name: Build e push da imagem-base
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/hubfiscal-${{ matrix.name }}:${{ matrix.tag }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/hubfiscal-${{ matrix.name }}:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/hubfiscal-${{ matrix.name }}:buildcache,mode=max,ignore-error=true
           provenance: mode=max
           sbom: true
 
@@ -190,12 +193,15 @@ jobs:
             dockerfile: apps/web/Dockerfile.production
             base_arg: WEB_BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/hubfiscal-web-base:node24-v1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit_sha }}
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+          cache-image: false
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -227,7 +233,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build e push multi-arquitetura
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -240,8 +246,8 @@ jobs:
             BUILD_SHA=${{ needs.metadata.outputs.commit_sha }}
             BUILD_DATE=${{ needs.metadata.outputs.build_date }}
             BUILD_REF=${{ needs.metadata.outputs.tag }}
-          cache-from: type=gha,scope=app-${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=app-${{ matrix.image }}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/hubfiscal-${{ matrix.image }}:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/hubfiscal-${{ matrix.image }}:buildcache,mode=max,ignore-error=true
           provenance: mode=max
           sbom: true
 
@@ -250,14 +256,14 @@ jobs:
     if: needs.metadata.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit_sha }}
           fetch-depth: 0
       - name: Gerar pacote de release
         run: ./scripts/package.sh release-assets
       - name: Publicar artefato intermediário
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: hubfiscal-${{ needs.metadata.outputs.version }}-release-assets
           path: release-assets/*
@@ -269,11 +275,11 @@ jobs:
     if: needs.metadata.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit_sha }}
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: hubfiscal-${{ needs.metadata.outputs.version }}-release-assets
           path: release-assets
@@ -307,7 +313,7 @@ jobs:
           gh release create "${args[@]}"
 
       - name: Atestar artefatos
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: release-assets/*
 
@@ -318,4 +324,5 @@ jobs:
           echo "- Commit: ${{ needs.metadata.outputs.commit_sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Imagens: API e Web para linux/amd64 e linux/arm64" >> "$GITHUB_STEP_SUMMARY"
           echo "- Alias estável: latest" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cache de build: GHCR (independente do cache do GitHub Actions)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artefatos: source ZIP/TAR.GZ, CloudPanel, Dockge, Portainer, manifesto e SHA256SUMS" >> "$GITHUB_STEP_SUMMARY"
