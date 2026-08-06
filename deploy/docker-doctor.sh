@@ -137,10 +137,26 @@ else
   ok "Porta web $http_port aparentemente disponível."
 fi
 
-if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet; then
-  ok "Interpolação e sintaxe do Docker Compose aprovadas."
+compose_stderr="$(mktemp)"
+if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet 2>"$compose_stderr"; then
+  if [[ -s "$compose_stderr" ]]; then
+    cat "$compose_stderr" >&2
+    fail "Docker Compose emitiu warning(s) durante a interpolação; corrija antes do deploy."
+  else
+    ok "Interpolação e sintaxe do Docker Compose aprovadas sem warnings."
+  fi
 else
+  cat "$compose_stderr" >&2 || true
   fail "Docker Compose inválido para o ambiente informado."
+fi
+rm -f "$compose_stderr"
+
+if (( failures == 0 )); then
+  if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps hubfiscal-storage-init; then
+    ok "Storage init executado com sucesso."
+  else
+    fail "hubfiscal-storage-init falhou; revise permissões e bind mount do HUBFISCAL_DATA_ROOT."
+  fi
 fi
 
 if [[ "$PULL_IMAGES" == "true" ]]; then
