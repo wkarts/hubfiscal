@@ -7,12 +7,18 @@ import pytest
 from hubfiscal.models import LegalEntity
 from hubfiscal.operational_schemas import PasswordChange, RetrievalBatchCreate
 from hubfiscal.plugins.builtin import NFeDistributionPlugin
+from hubfiscal.plugins.dfe_guarded import GuardedNFeDistributionPlugin
+from hubfiscal.plugins.registry import registry
 from hubfiscal.plugins.sdk import PluginRequest, PluginStatus
 
 
 def test_batch_deduplicates_keys():
     payload = RetrievalBatchCreate(
-        access_keys=[" 29260000000000000000000000000000000000000001 ", "29260000000000000000000000000000000000000001", "35260000000000000000000000000000000000000002"],
+        access_keys=[
+            " 29260000000000000000000000000000000000000001 ",
+            "29260000000000000000000000000000000000000001",
+            "35260000000000000000000000000000000000000002",
+        ],
     )
     assert payload.access_keys == [
         "29260000000000000000000000000000000000000001",
@@ -23,6 +29,10 @@ def test_batch_deduplicates_keys():
 def test_password_change_rejects_edge_spaces():
     with pytest.raises(ValueError):
         PasswordChange(current_password="old-password", new_password=" new-password ")
+
+
+def test_registry_uses_guarded_nfe_distribution():
+    assert isinstance(registry.get("nfe-distribution"), GuardedNFeDistributionPlugin)
 
 
 def _entity() -> LegalEntity:
