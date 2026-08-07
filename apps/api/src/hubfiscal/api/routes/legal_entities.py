@@ -22,11 +22,15 @@ router = APIRouter(prefix="/legal-entities", tags=["Empresas e CNPJs"])
 company_context = require_resource("companies")
 
 
-def _validate_resources(resources: list[str]) -> list[str]:
-    invalid = sorted(set(resources) - set(ALL_RESOURCES))
+def _validate_resources(resources: list[str], context: AuthContext) -> list[str]:
+    normalized = list(dict.fromkeys(resources))
+    invalid = sorted(set(normalized) - set(ALL_RESOURCES))
     if invalid:
         raise HTTPException(status_code=422, detail=f"Recursos desconhecidos: {', '.join(invalid)}")
-    return list(dict.fromkeys(resources))
+    excessive = sorted(set(normalized) - set(context.enabled_resources))
+    if excessive:
+        raise HTTPException(status_code=403, detail=f"Recursos não habilitados no tenant/perfil: {', '.join(excessive)}")
+    return normalized
 
 
 def _scoped_statement(context: AuthContext):
@@ -69,6 +73,8 @@ async def list_entities(context: AuthContext = Depends(company_context), db: Asy
 async def create_entity(payload: LegalEntityCreate, context: AuthContext = Depends(company_context), db: AsyncSession = Depends(get_db)):
     if context.tenant_id is None:
         raise HTTPException(status_code=400, detail="Selecione um tenant")
+    if not context.user.is_platform_admin and "*" not in context.permissions and "manage" not in context.permissions:
+        raise HTTPException(status_code=403, detail="Perfil sem permissão para cadastrar empresas")
 
     document = normalize_tax_document(payload.document)
     if not validate_tax_document(document):
@@ -88,7 +94,8 @@ async def create_entity(payload: LegalEntityCreate, context: AuthContext = Depen
     if not legal_name:
         raise HTTPException(status_code=422, detail="Informe a razão social quando a consulta externa não retornar dados")
 
-    resources = _validate_resources(payload.enabled_resources or list(ALL_RESOURCES))
+    selected_resources = payload.enabled_resources if payload.enabled_resources is not None else list(context.enabled_resources)
+    resources = _validate_resources(selected_resources, context)
     entity = LegalEntity(
         tenant_id=context.tenant_id,
         document=document,
@@ -135,7 +142,9 @@ async def update_entity_resources(
     entity = await db.scalar(select(LegalEntity).where(LegalEntity.id == entity_id, LegalEntity.tenant_id == context.tenant_id))
     if entity is None:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    entity.enabled_resources = _validate_resources(payload.enabled_resources)
+    if context.entity_scope and str(entity.id) not in context.entity_scope:
+        raise HTTPException(status_code=403, detail="Empresa fora do seu escopo de CNPJs")
+    entity.enabled_resources = _validate_resources(payload.enabled_resources, context)
     await audit(
         db,
         action="legal_entity.resources.update",
