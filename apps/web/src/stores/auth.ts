@@ -33,13 +33,7 @@ export const useAuthStore = defineStore('auth', {
     selectedTenant(state): Tenant | undefined { return state.tenants.find((tenant) => tenant.id === state.tenantId) },
     enabledResources(state): string[] {
       if (!state.tenantId && state.user?.is_platform_admin) return []
-      return state.context?.enabled_resources || state.selectedTenant?.settings?.enabled_resources || []
-    },
-    hasResource(): (resource: string) => boolean {
-      return (resource: string) => {
-        if (!this.tenantId && this.user?.is_platform_admin) return true
-        return this.enabledResources.includes(resource)
-      }
+      return state.context?.enabled_resources || state.tenants.find((tenant) => tenant.id === state.tenantId)?.settings?.enabled_resources || []
     },
   },
   actions: {
