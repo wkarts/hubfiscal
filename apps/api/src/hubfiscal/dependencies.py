@@ -9,11 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.database import get_db
-from .core.resources import ALL_RESOURCES
+from .core.resources import ALL_RESOURCES, DEFAULT_ACCESS_PROFILES
 from .core.security import decode_token
 from .models import AccessProfile, Membership, Tenant, User
 
 bearer = HTTPBearer(auto_error=False)
+LEGACY_PROFILES = {profile["key"]: profile for profile in DEFAULT_ACCESS_PROFILES}
 
 
 @dataclass(slots=True)
@@ -118,11 +119,19 @@ async def current_context(
             )
         )
 
-    permissions = list(profile.permissions if profile else membership.permissions)
+    legacy = LEGACY_PROFILES.get(membership.role)
+    if profile:
+        permissions = list(profile.permissions)
+        profile_resources = list(profile.enabled_resources)
+        profile_name = profile.name
+    else:
+        permissions = list(membership.permissions or (legacy["permissions"] if legacy else []))
+        profile_resources = list(legacy["enabled_resources"] if legacy else ALL_RESOURCES)
+        profile_name = legacy["name"] if legacy else None
+
     if "*" in permissions:
         effective_resources = tenant_resources
     else:
-        profile_resources = list(profile.enabled_resources if profile else ALL_RESOURCES)
         effective_resources = _ordered_intersection(tenant_resources, profile_resources)
 
     return AuthContext(
@@ -133,7 +142,7 @@ async def current_context(
         enabled_resources=effective_resources,
         entity_scope=list(membership.entity_scope or []),
         profile_id=profile.id if profile else None,
-        profile_name=profile.name if profile else None,
+        profile_name=profile_name,
     )
 
 
