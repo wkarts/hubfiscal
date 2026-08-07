@@ -14,6 +14,30 @@ from ...services.audit import audit
 
 router = APIRouter(prefix="/access-profiles", tags=["Perfis e permissões"])
 
+RESOURCE_LABELS = {
+    "dashboard": "Visão geral",
+    "companies": "Empresas e CNPJs",
+    "users": "Usuários",
+    "profiles": "Perfis e permissões",
+    "certificates": "Certificados",
+    "documents": "Documentos/XML",
+    "query": "Consultas",
+    "nfe": "NF-e",
+    "nfce": "NFC-e",
+    "cte": "CT-e",
+    "mdfe": "MDF-e",
+    "nfse": "NFS-e",
+    "dfe": "Distribuição DF-e",
+    "plugins": "Plugins/conectores",
+    "policies": "Políticas de consulta",
+    "jobs": "Jobs e lotes",
+    "integrations": "Integrações",
+    "api_clients": "API e credenciais",
+    "webhooks": "Webhooks",
+    "reports": "Relatórios",
+    "audit": "Auditoria",
+}
+
 
 def _require_tenant_admin(context: AuthContext) -> UUID:
     if context.tenant_id is None:
@@ -28,6 +52,11 @@ def _validate_resources(resources: list[str]) -> list[str]:
     if invalid:
         raise HTTPException(status_code=422, detail=f"Recursos desconhecidos: {', '.join(invalid)}")
     return list(dict.fromkeys(resources))
+
+
+@router.get("/resources")
+async def list_resources(_: AuthContext = Depends(current_context)):
+    return [{"key": key, "label": RESOURCE_LABELS.get(key, key)} for key in ALL_RESOURCES]
 
 
 @router.get("", response_model=list[AccessProfileOut])
