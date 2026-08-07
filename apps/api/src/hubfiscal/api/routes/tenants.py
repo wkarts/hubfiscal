@@ -48,7 +48,8 @@ async def create_tenant(payload: TenantCreate, context: AuthContext = Depends(re
     if await db.scalar(select(Tenant).where(Tenant.slug == payload.slug)):
         raise HTTPException(status_code=409, detail="Slug já cadastrado")
 
-    resources = _validated_resources(payload.enabled_resources or preset_resources(payload.resource_preset))
+    selected_resources = payload.enabled_resources if payload.enabled_resources is not None else preset_resources(payload.resource_preset)
+    resources = _validated_resources(selected_resources)
     tenant = Tenant(
         name=payload.name,
         slug=payload.slug,
