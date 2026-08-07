@@ -16,27 +16,27 @@ const appVersion = __APP_VERSION__
 const buildSha = __BUILD_SHA__.slice(0, 8)
 const buildDate = __BUILD_DATE__
 const items = [
-  { to: '/', label: 'Visão geral', icon: LayoutDashboard, resource: 'dashboard' },
+  { to: '/', label: 'Visão geral', icon: LayoutDashboard, resources: ['dashboard'] },
   { to: '/tenants', label: 'Tenants / Clientes', icon: Building2, platform: true },
-  { to: '/users', label: 'Usuários e perfis', icon: Users, resource: 'users' },
-  { to: '/companies', label: 'Empresas e CNPJs', icon: Landmark, resource: 'companies' },
-  { to: '/certificates', label: 'Certificados', icon: ShieldCheck, resource: 'certificates' },
-  { to: '/plugins', label: 'Plugins', icon: PlugZap, resource: 'plugins' },
-  { to: '/policies', label: 'Políticas', icon: GitBranch, resource: 'policies' },
-  { to: '/documents', label: 'Documentos', icon: Files, resource: 'documents' },
-  { to: '/nfse', label: 'NFS-e', icon: ReceiptText, resource: 'nfse' },
-  { to: '/query', label: 'Consultar chave', icon: Search, resource: 'query' },
-  { to: '/jobs', label: 'Jobs e lotes', icon: ListTodo, resource: 'jobs' },
-  { to: '/api-clients', label: 'API e credenciais', icon: KeyRound, resource: 'api_clients' },
-  { to: '/webhooks', label: 'Webhooks', icon: Webhook, resource: 'webhooks' },
-  { to: '/audit', label: 'Auditoria', icon: ScrollText, resource: 'audit' },
-  { to: '/settings', label: 'Configurações', icon: Settings, resource: 'integrations' },
+  { to: '/users', label: 'Usuários e perfis', icon: Users, resources: ['users', 'profiles'] },
+  { to: '/companies', label: 'Empresas e CNPJs', icon: Landmark, resources: ['companies'] },
+  { to: '/certificates', label: 'Certificados', icon: ShieldCheck, resources: ['certificates'] },
+  { to: '/plugins', label: 'Plugins', icon: PlugZap, resources: ['plugins'] },
+  { to: '/policies', label: 'Políticas', icon: GitBranch, resources: ['policies'] },
+  { to: '/documents', label: 'Documentos', icon: Files, resources: ['documents'] },
+  { to: '/nfse', label: 'NFS-e', icon: ReceiptText, resources: ['nfse'] },
+  { to: '/query', label: 'Consultar chave', icon: Search, resources: ['query'] },
+  { to: '/jobs', label: 'Jobs e lotes', icon: ListTodo, resources: ['jobs'] },
+  { to: '/api-clients', label: 'API e credenciais', icon: KeyRound, resources: ['api_clients'] },
+  { to: '/webhooks', label: 'Webhooks', icon: Webhook, resources: ['webhooks'] },
+  { to: '/audit', label: 'Auditoria', icon: ScrollText, resources: ['audit'] },
+  { to: '/settings', label: 'Configurações', icon: Settings, resources: ['integrations'] },
 ]
 const visibleItems = computed(() => items.filter((item) => {
   if (item.platform) return Boolean(auth.user?.is_platform_admin)
-  if (!item.resource) return true
+  if (!item.resources?.length) return true
   if (!auth.tenantId && auth.user?.is_platform_admin) return true
-  return auth.enabledResources.includes(item.resource)
+  return item.resources.some((resource) => auth.enabledResources.includes(resource))
 }))
 const profileLabel = computed(() => {
   if (auth.user?.is_platform_admin && !auth.tenantId) return 'Administrador da plataforma'
