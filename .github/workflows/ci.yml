@@ -25,6 +25,7 @@ jobs:
       - name: Validar scripts
         run: |
           python3 -m py_compile scripts/set-version.py
+          python3 -m compileall -q apps/api/alembic
           bash -n scripts/*.sh
           bash -n deploy/*.sh
           bash -n deploy/cloudpanel/*.sh
@@ -99,9 +100,54 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip setuptools wheel
       - run: python -m pip install -e 'apps/api[dev]'
-      - run: ruff check apps/api/src apps/api/tests
-      - run: python -m compileall -q apps/api/src
+      - run: ruff check apps/api/src apps/api/tests apps/api/alembic/versions
+      - run: python -m compileall -q apps/api/src apps/api/alembic
       - run: pytest -q
+
+  migration:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hubfiscal_ci
+          POSTGRES_USER: hubfiscal
+          POSTGRES_PASSWORD: hubfiscal-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hubfiscal -d hubfiscal_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      HUBFISCAL_SECRET_KEY: ci-secret-key-ci-secret-key-ci-secret-key-ci-secret-key-1234567890
+      HUBFISCAL_ENCRYPTION_KEY: Q2ZsTG1SS0ttZXJ0cmljLWh1YmZpc2NhbC1rZXk9ISE=
+      HUBFISCAL_BOOTSTRAP_TOKEN: bootstrap-ci
+      DATABASE_URL: postgresql+asyncpg://hubfiscal:hubfiscal-ci@127.0.0.1:5432/hubfiscal_ci
+      DATABASE_URL_SYNC: postgresql+psycopg://hubfiscal:hubfiscal-ci@127.0.0.1:5432/hubfiscal_ci
+      REDIS_URL: redis://127.0.0.1:6379/0
+      CELERY_BROKER_URL: memory://
+      CELERY_RESULT_BACKEND: cache+memory://
+      MINIO_ENDPOINT: http://127.0.0.1:9000
+      MINIO_ROOT_USER: ci
+      MINIO_ROOT_PASSWORD: ci-secret
+      MINIO_BUCKET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install -e apps/api
+      - name: Aplicar, reverter e reaplicar migrations
+        working-directory: apps/api
+        run: |
+          alembic upgrade head
+          alembic current
+          alembic downgrade 0001
+          alembic upgrade head
+          alembic current
 
   frontend:
     runs-on: ubuntu-24.04
