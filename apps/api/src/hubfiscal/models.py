@@ -56,6 +56,22 @@ class Tenant(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(30), default="active")
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
     memberships: Mapped[list[Membership]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    access_profiles: Mapped[list[AccessProfile]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+
+
+class AccessProfile(Base, TimestampMixin):
+    __tablename__ = "access_profiles"
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_access_profile_tenant_key"),)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(80))
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str] = mapped_column(Text, default="")
+    permissions: Mapped[list] = mapped_column(JSONB, default=list)
+    enabled_resources: Mapped[list] = mapped_column(JSONB, default=list)
+    entity_scope_mode: Mapped[str] = mapped_column(String(30), default="all")
+    system: Mapped[bool] = mapped_column(Boolean, default=False)
+    tenant: Mapped[Tenant] = relationship(back_populates="access_profiles")
 
 
 class Membership(Base, TimestampMixin):
@@ -64,11 +80,13 @@ class Membership(Base, TimestampMixin):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    profile_id: Mapped[UUID | None] = mapped_column(ForeignKey("access_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     role: Mapped[str] = mapped_column(String(60), default="tenant_admin")
     permissions: Mapped[list] = mapped_column(JSONB, default=list)
     entity_scope: Mapped[list] = mapped_column(JSONB, default=list)
     tenant: Mapped[Tenant] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")
+    profile: Mapped[AccessProfile | None] = relationship()
 
 
 class LegalEntity(Base, TimestampMixin):
@@ -82,6 +100,9 @@ class LegalEntity(Base, TimestampMixin):
     state_registration: Mapped[str | None] = mapped_column(String(40), nullable=True)
     municipal_registrations: Mapped[list] = mapped_column(JSONB, default=list)
     city_ibge_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    relationship_type: Mapped[str] = mapped_column(String(30), default="client")
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled_resources: Mapped[list] = mapped_column(JSONB, default=list)
     status: Mapped[str] = mapped_column(String(30), default="active")
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
