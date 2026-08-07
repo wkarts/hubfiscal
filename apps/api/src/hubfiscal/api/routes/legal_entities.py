@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.database import get_db
 from ...core.resources import ALL_RESOURCES
-from ...dependencies import AuthContext, require_resource
+from ...dependencies import AuthContext, current_context, require_resource
 from ...models import LegalEntity
 from ...schemas import LegalEntityCreate, LegalEntityOut, LegalEntityUpdateResources
 from ...services.audit import audit
@@ -29,18 +29,40 @@ def _validate_resources(resources: list[str]) -> list[str]:
     return list(dict.fromkeys(resources))
 
 
-@router.get("", response_model=list[LegalEntityOut])
-async def list_entities(context: AuthContext = Depends(company_context), db: AsyncSession = Depends(get_db)):
-    if context.tenant_id is None:
-        return []
-    stmt = select(LegalEntity).where(LegalEntity.tenant_id == context.tenant_id).order_by(LegalEntity.is_primary.desc(), LegalEntity.legal_name)
+def _scoped_statement(context: AuthContext):
+    stmt = select(LegalEntity).where(LegalEntity.tenant_id == context.tenant_id)
     if context.entity_scope:
         try:
             scoped_ids = [UUID(value) for value in context.entity_scope]
         except ValueError as exc:
             raise HTTPException(status_code=403, detail="Escopo de empresa inválido") from exc
         stmt = stmt.where(LegalEntity.id.in_(scoped_ids))
-    return list((await db.scalars(stmt)).all())
+    return stmt
+
+
+@router.get("/options")
+async def list_entity_options(context: AuthContext = Depends(current_context), db: AsyncSession = Depends(get_db)):
+    if context.tenant_id is None:
+        return []
+    items = list((await db.scalars(_scoped_statement(context).order_by(LegalEntity.is_primary.desc(), LegalEntity.legal_name))).all())
+    return [
+        {
+            "id": str(item.id),
+            "document": item.document,
+            "legal_name": item.legal_name,
+            "trade_name": item.trade_name,
+            "is_primary": item.is_primary,
+            "enabled_resources": item.enabled_resources,
+        }
+        for item in items
+    ]
+
+
+@router.get("", response_model=list[LegalEntityOut])
+async def list_entities(context: AuthContext = Depends(company_context), db: AsyncSession = Depends(get_db)):
+    if context.tenant_id is None:
+        return []
+    return list((await db.scalars(_scoped_statement(context).order_by(LegalEntity.is_primary.desc(), LegalEntity.legal_name))).all())
 
 
 @router.post("", response_model=LegalEntityOut, status_code=201)
