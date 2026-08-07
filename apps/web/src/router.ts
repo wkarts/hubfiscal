@@ -16,6 +16,7 @@ import ApiClientsView from './views/ApiClientsView.vue'
 import WebhooksView from './views/WebhooksView.vue'
 import AuditView from './views/AuditView.vue'
 import SettingsView from './views/SettingsView.vue'
+import ProfileView from './views/ProfileView.vue'
 
 const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },
@@ -35,6 +36,7 @@ const routes = [
   { path: '/webhooks', component: WebhooksView },
   { path: '/audit', component: AuditView },
   { path: '/settings', component: SettingsView },
+  { path: '/profile', component: ProfileView },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
