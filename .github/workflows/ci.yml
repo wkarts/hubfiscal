@@ -149,6 +149,69 @@ jobs:
           alembic upgrade head
           alembic current
 
+  rabbitmq-celery:
+    runs-on: ubuntu-24.04
+    services:
+      rabbitmq:
+        image: rabbitmq:4-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: hubfiscal
+          RABBITMQ_DEFAULT_PASS: hubfiscal-ci
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      HUBFISCAL_SECRET_KEY: ci-secret-key-ci-secret-key-ci-secret-key-ci-secret-key-1234567890
+      HUBFISCAL_ENCRYPTION_KEY: Q2ZsTG1SS0ttZXJ0cmljLWh1YmZpc2NhbC1rZXk9ISE=
+      HUBFISCAL_BOOTSTRAP_TOKEN: bootstrap-ci
+      DATABASE_URL: postgresql+asyncpg://hubfiscal:hubfiscal-ci@127.0.0.1:5432/hubfiscal_ci
+      DATABASE_URL_SYNC: postgresql+psycopg://hubfiscal:hubfiscal-ci@127.0.0.1:5432/hubfiscal_ci
+      REDIS_URL: redis://127.0.0.1:6379/0
+      CELERY_BROKER_URL: amqp://hubfiscal:hubfiscal-ci@127.0.0.1:5672//
+      CELERY_RESULT_BACKEND: cache+memory://
+      MINIO_ENDPOINT: http://127.0.0.1:9000
+      MINIO_ROOT_USER: ci
+      MINIO_ROOT_PASSWORD: ci-secret
+      MINIO_BUCKET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install -e apps/api
+      - name: Manter worker conectado ao RabbitMQ 4 sem filas transitórias depreciadas
+        shell: bash
+        run: |
+          set -euo pipefail
+          celery -A hubfiscal.worker.celery_app worker \
+            --pool=solo \
+            --loglevel=INFO \
+            --without-mingle \
+            --without-gossip \
+            >/tmp/hubfiscal-celery.log 2>&1 &
+          pid=$!
+          cleanup() {
+            kill -TERM "$pid" >/dev/null 2>&1 || true
+            wait "$pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          sleep 10
+          if ! kill -0 "$pid" >/dev/null 2>&1; then
+            cat /tmp/hubfiscal-celery.log
+            exit 1
+          fi
+          cat /tmp/hubfiscal-celery.log
+          grep -q "Connected to amqp" /tmp/hubfiscal-celery.log
+          if grep -Eq "transient_nonexcl_queues|RestartFreqExceeded|Connection to broker lost" /tmp/hubfiscal-celery.log; then
+            echo "Celery/RabbitMQ 4 apresentou regressão de filas transitórias ou reconexão." >&2
+            exit 1
+          fi
+
   frontend:
     runs-on: ubuntu-24.04
     defaults:
