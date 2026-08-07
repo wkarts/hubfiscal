@@ -225,6 +225,7 @@ jobs:
           from hubfiscal.services.storage import storage
 
           PASSWORD = "certificado-ci-123"
+          EMAIL = "admin-ci@hubfiscal.example.com"
 
           def make_pfx() -> bytes:
               key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -259,7 +260,7 @@ jobs:
                       json={
                           "token": "bootstrap-ci",
                           "name": "Administrador CI",
-                          "email": "admin-ci@example.test",
+                          "email": EMAIL,
                           "password": "Admin-CI-123456",
                       },
                   )
@@ -268,7 +269,7 @@ jobs:
                   response = await client.post(
                       "/api/v1/auth/login",
                       json={
-                          "email": "admin-ci@example.test",
+                          "email": EMAIL,
                           "password": "Admin-CI-123456",
                       },
                   )
