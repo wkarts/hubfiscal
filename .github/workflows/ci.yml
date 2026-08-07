@@ -12,10 +12,10 @@ jobs:
   contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -93,8 +93,8 @@ jobs:
   backend:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
           cache: pip
@@ -134,8 +134,8 @@ jobs:
       MINIO_ROOT_PASSWORD: ci-secret
       MINIO_BUCKET: ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - run: python -m pip install --upgrade pip setuptools wheel
@@ -182,8 +182,8 @@ jobs:
       MINIO_SECURE: 'false'
       MINIO_SERVER_SIDE_ENCRYPTION: none
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - run: python -m pip install --upgrade pip setuptools wheel
@@ -379,8 +379,8 @@ jobs:
       MINIO_ROOT_PASSWORD: ci-secret
       MINIO_BUCKET: ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - run: python -m pip install --upgrade pip setuptools wheel
@@ -429,8 +429,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - run: npm install --include=dev --no-audit --no-fund
@@ -439,7 +439,7 @@ jobs:
   docker:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cp .env.example .env
       - run: |
           output="$(docker compose --env-file .env -f compose.yaml config --quiet 2>&1)" || { printf '%s\n' "$output"; exit 1; }
