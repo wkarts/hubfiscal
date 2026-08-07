@@ -24,11 +24,15 @@ RESOURCE_LABELS = {
 }
 
 
-def _require_tenant_admin(context: AuthContext) -> UUID:
+def _require_tenant_admin(context: AuthContext, *, allow_users_resource: bool = False) -> UUID:
     if context.tenant_id is None:
         raise HTTPException(status_code=400, detail="Selecione um tenant")
-    if not context.user.is_platform_admin and "*" not in context.permissions and "manage" not in context.permissions:
-        raise HTTPException(status_code=403, detail="Perfil sem permissão para administrar acessos")
+    if not context.user.is_platform_admin:
+        resource_allowed = "profiles" in context.enabled_resources or (allow_users_resource and "users" in context.enabled_resources)
+        if not resource_allowed:
+            raise HTTPException(status_code=403, detail="Recurso de perfis não habilitado")
+        if "*" not in context.permissions and "manage" not in context.permissions:
+            raise HTTPException(status_code=403, detail="Perfil sem permissão para administrar acessos")
     return context.tenant_id
 
 
@@ -46,7 +50,7 @@ async def list_resources(_: AuthContext = Depends(current_context)):
 
 @router.get("", response_model=list[AccessProfileOut])
 async def list_profiles(context: AuthContext = Depends(current_context), db: AsyncSession = Depends(get_db)):
-    tenant_id = _require_tenant_admin(context)
+    tenant_id = _require_tenant_admin(context, allow_users_resource=True)
     await ensure_default_access_profiles(db, tenant_id)
     await db.commit()
     return list((await db.scalars(select(AccessProfile).where(AccessProfile.tenant_id == tenant_id).order_by(AccessProfile.name))).all())
