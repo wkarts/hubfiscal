@@ -36,16 +36,36 @@ def _require_tenant_admin(context: AuthContext, *, allow_users_resource: bool = 
     return context.tenant_id
 
 
-def _validate_resources(resources: list[str]) -> list[str]:
-    invalid = sorted(set(resources) - set(ALL_RESOURCES))
+def _validate_resources(resources: list[str], context: AuthContext | None = None) -> list[str]:
+    normalized = list(dict.fromkeys(resources))
+    invalid = sorted(set(normalized) - set(ALL_RESOURCES))
     if invalid:
         raise HTTPException(status_code=422, detail=f"Recursos desconhecidos: {', '.join(invalid)}")
-    return list(dict.fromkeys(resources))
+    if context and not context.user.is_platform_admin and "*" not in context.permissions:
+        excessive = sorted(set(normalized) - set(context.enabled_resources))
+        if excessive:
+            raise HTTPException(status_code=403, detail=f"Você não pode delegar recursos fora do seu acesso: {', '.join(excessive)}")
+    return normalized
+
+
+def _validate_permissions(permissions: list[str], context: AuthContext) -> list[str]:
+    normalized = list(dict.fromkeys(permissions))
+    allowed = {"read", "write", "manage", "*"}
+    invalid = sorted(set(normalized) - allowed)
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Permissões desconhecidas: {', '.join(invalid)}")
+    if not context.user.is_platform_admin and "*" not in context.permissions:
+        if "*" in normalized:
+            raise HTTPException(status_code=403, detail="Somente o proprietário pode conceder controle total")
+        if "manage" in normalized and "manage" not in context.permissions:
+            raise HTTPException(status_code=403, detail="Você não pode conceder a permissão de administração")
+    return normalized
 
 
 @router.get("/resources")
-async def list_resources(_: AuthContext = Depends(current_context)):
-    return [{"key": key, "label": RESOURCE_LABELS.get(key, key)} for key in ALL_RESOURCES]
+async def list_resources(context: AuthContext = Depends(current_context)):
+    visible = ALL_RESOURCES if context.tenant_id is None else context.enabled_resources
+    return [{"key": key, "label": RESOURCE_LABELS.get(key, key)} for key in visible]
 
 
 @router.get("", response_model=list[AccessProfileOut])
@@ -66,8 +86,8 @@ async def create_profile(payload: AccessProfileCreate, context: AuthContext = De
         key=payload.key,
         name=payload.name,
         description=payload.description,
-        permissions=list(dict.fromkeys(payload.permissions)),
-        enabled_resources=_validate_resources(payload.enabled_resources),
+        permissions=_validate_permissions(payload.permissions, context),
+        enabled_resources=_validate_resources(payload.enabled_resources, context),
         entity_scope_mode=payload.entity_scope_mode,
         system=False,
     )
@@ -85,9 +105,13 @@ async def update_profile(profile_id: UUID, payload: AccessProfileUpdate, context
     profile = await db.scalar(select(AccessProfile).where(AccessProfile.id == profile_id, AccessProfile.tenant_id == tenant_id))
     if profile is None:
         raise HTTPException(status_code=404, detail="Perfil não encontrado")
+    if profile.system and not context.user.is_platform_admin and "*" not in context.permissions:
+        raise HTTPException(status_code=403, detail="Somente o proprietário pode alterar perfis padrão")
     data = payload.model_dump(exclude_unset=True)
     if "enabled_resources" in data:
-        data["enabled_resources"] = _validate_resources(data["enabled_resources"])
+        data["enabled_resources"] = _validate_resources(data["enabled_resources"], context)
+    if "permissions" in data:
+        data["permissions"] = _validate_permissions(data["permissions"], context)
     for key, value in data.items():
         setattr(profile, key, value)
     await audit(db, action="access_profile.update", resource_type="access_profile", resource_id=str(profile.id), tenant_id=tenant_id, user_id=context.user.id)
