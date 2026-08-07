@@ -7,13 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.database import get_db
 from ...core.resources import ALL_RESOURCES
 from ...core.security import hash_password
-from ...dependencies import AuthContext, current_context
+from ...dependencies import AuthContext, require_resource
 from ...models import AccessProfile, LegalEntity, Membership, User
 from ...schemas import TenantUserOut, UserCreate, UserMembershipUpdate
 from ...services.access_profiles import ensure_default_access_profiles
 from ...services.audit import audit
 
 router = APIRouter(prefix="/users", tags=["Usuários"])
+user_context = require_resource("users")
 
 
 def _require_access_admin(context: AuthContext) -> UUID:
@@ -71,7 +72,7 @@ def _tenant_user(user: User, membership: Membership, profile: AccessProfile | No
 
 
 @router.get("", response_model=list[TenantUserOut])
-async def list_users(context: AuthContext = Depends(current_context), db: AsyncSession = Depends(get_db)):
+async def list_users(context: AuthContext = Depends(user_context), db: AsyncSession = Depends(get_db)):
     if context.tenant_id is None:
         users = list((await db.scalars(select(User).order_by(User.name))).all())
         return [
@@ -98,7 +99,7 @@ async def list_users(context: AuthContext = Depends(current_context), db: AsyncS
 
 
 @router.post("", response_model=TenantUserOut, status_code=201)
-async def create_user(payload: UserCreate, context: AuthContext = Depends(current_context), db: AsyncSession = Depends(get_db)):
+async def create_user(payload: UserCreate, context: AuthContext = Depends(user_context), db: AsyncSession = Depends(get_db)):
     tenant_id = _require_access_admin(context)
     profile = await _profile_for_payload(db, tenant_id, payload.profile_id, payload.role)
     entity_scope = await _validated_scope(db, tenant_id, payload.entity_scope)
@@ -136,7 +137,7 @@ async def create_user(payload: UserCreate, context: AuthContext = Depends(curren
 async def update_user_membership(
     user_id: UUID,
     payload: UserMembershipUpdate,
-    context: AuthContext = Depends(current_context),
+    context: AuthContext = Depends(user_context),
     db: AsyncSession = Depends(get_db),
 ):
     tenant_id = _require_access_admin(context)
