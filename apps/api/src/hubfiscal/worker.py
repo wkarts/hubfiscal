@@ -52,9 +52,11 @@ def execute_retrieval_task(self, job_id: str):
             countdown = min(60, 2 ** (self.request.retries + 1))
             raise self.retry(exc=exc, countdown=countdown)
 
+        failure_message = str(exc)
+
         async def fail():
             async with SessionLocal() as db:
-                await mark_job_failed(db, UUID(job_id), str(exc))
+                await mark_job_failed(db, UUID(job_id), failure_message)
 
         asyncio.run(fail())
         raise
