@@ -99,6 +99,13 @@ async def auth_context(context: AuthContext = Depends(current_context)):
     }
 
 
-@router.get("/auth/me", response_model=UserOut)
+@router.get("/auth/me")
 async def me(user: User = Depends(current_user)):
-    return user
+    return {
+        "id": str(user.id),
+        "name": user.name,
+        "email": user.email,
+        "status": user.status,
+        "is_platform_admin": user.is_platform_admin,
+        "has_avatar": user.has_avatar,
+    }
