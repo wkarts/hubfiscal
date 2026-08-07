@@ -38,6 +38,8 @@ const profileCols = [
   { key: 'system_label', label: 'Origem' },
 ]
 const tenantSelected = computed(() => Boolean(auth.tenantId))
+const canUsers = computed(() => !auth.tenantId ? Boolean(auth.user?.is_platform_admin) : auth.enabledResources.includes('users'))
+const canProfiles = computed(() => Boolean(auth.tenantId) && auth.enabledResources.includes('profiles'))
 
 function mapUsers(items: any[]) {
   return items.map((item) => ({
@@ -57,23 +59,34 @@ function mapProfiles(items: any[]) {
 }
 async function load() {
   error.value = ''
+  rows.value = []
+  profiles.value = []
+  entities.value = []
   try {
     const resourceResponse = await api.get('/access-profiles/resources')
     resources.value = resourceResponse.data
     if (!auth.tenantId) {
-      rows.value = mapUsers((await api.get('/users')).data)
-      profiles.value = []
-      entities.value = []
+      if (canUsers.value) rows.value = mapUsers((await api.get('/users')).data)
       return
     }
-    const [usersResponse, profilesResponse, entitiesResponse] = await Promise.all([
-      api.get('/users'),
-      api.get('/access-profiles'),
-      api.get('/legal-entities'),
-    ])
-    rows.value = mapUsers(usersResponse.data)
-    profiles.value = mapProfiles(profilesResponse.data)
-    entities.value = entitiesResponse.data
+
+    const requests: Promise<any>[] = []
+    const keys: string[] = []
+    if (canUsers.value) {
+      keys.push('users', 'entities')
+      requests.push(api.get('/users'), api.get('/legal-entities/options'))
+    }
+    if (canUsers.value || canProfiles.value) {
+      keys.push('profiles')
+      requests.push(api.get('/access-profiles'))
+    }
+    const responses = await Promise.all(requests)
+    responses.forEach((response, index) => {
+      const key = keys[index]
+      if (key === 'users') rows.value = mapUsers(response.data)
+      if (key === 'entities') entities.value = response.data
+      if (key === 'profiles') profiles.value = mapProfiles(response.data)
+    })
   } catch (exception) {
     error.value = errorMessage(exception)
   }
@@ -89,7 +102,7 @@ function toggleProfileResource(key: string) {
     : [...profileForm.enabled_resources, key]
 }
 function showUserCreate() {
-  if (!tenantSelected.value) return
+  if (!tenantSelected.value || !canUsers.value) return
   editingUser.value = null
   Object.assign(form, { name: '', email: '', password: '', profile_id: profiles.value[0]?.id || '', entity_scope: [] })
   error.value = ''
@@ -115,7 +128,7 @@ async function saveUser() {
   }
 }
 function showProfileCreate() {
-  if (!tenantSelected.value) return
+  if (!tenantSelected.value || !canProfiles.value) return
   editingProfile.value = null
   Object.assign(profileForm, { name: '', key: '', description: '', enabled_resources: [...auth.enabledResources], can_manage: false })
   error.value = ''
@@ -171,17 +184,20 @@ onUnmounted(() => window.removeEventListener('tenant-changed', load))
 <template>
   <PageHeader title="Usuários, perfis e permissões" subtitle="Associe cada usuário a um perfil e, opcionalmente, limite o acesso a CNPJs específicos">
     <div class="page-actions" v-if="tenantSelected">
-      <button class="btn" @click="showProfileCreate"><ShieldCheck :size="16" />Novo perfil</button>
-      <button class="btn primary" @click="showUserCreate"><Plus :size="16" />Novo usuário</button>
+      <button v-if="canProfiles" class="btn" @click="showProfileCreate"><ShieldCheck :size="16" />Novo perfil</button>
+      <button v-if="canUsers" class="btn primary" @click="showUserCreate"><Plus :size="16" />Novo usuário</button>
     </div>
   </PageHeader>
 
   <div v-if="!tenantSelected" class="info-banner">
     <ShieldCheck :size="20" /><div><strong>Selecione um tenant</strong><span>Perfis, usuários e escopos são configurados dentro de cada tenant.</span></div>
   </div>
+  <div v-if="tenantSelected && !canUsers && !canProfiles" class="info-banner">
+    <ShieldCheck :size="20" /><div><strong>Recursos de acesso desabilitados</strong><span>Este perfil não possui os módulos Usuários ou Perfis.</span></div>
+  </div>
   <div v-if="error" class="alert danger">{{ error }}</div>
 
-  <section class="panel">
+  <section v-if="canUsers" class="panel">
     <div class="panel-title"><div><h3>Usuários</h3><p>Acesso administrativo e fiscal do tenant selecionado.</p></div></div>
     <DataTable :columns="cols" :rows="rows">
       <template #cell-status="{ value }"><StatusBadge :status="value" /></template>
@@ -189,7 +205,7 @@ onUnmounted(() => window.removeEventListener('tenant-changed', load))
     </DataTable>
   </section>
 
-  <section v-if="tenantSelected" class="panel section-gap">
+  <section v-if="canProfiles" class="panel section-gap">
     <div class="panel-title"><div><h3>Perfis do tenant</h3><p>Os recursos marcados definem o que aparece e pode ser acessado pelo perfil.</p></div></div>
     <DataTable :columns="profileCols" :rows="profiles">
       <template #actions="{ row }"><button class="btn small" @click="editProfile(row)"><Pencil :size="14" />Configurar</button></template>
