@@ -53,6 +53,24 @@ class UserOut(ORMModel):
     is_platform_admin: bool
 
 
+class TenantUserOut(BaseModel):
+    id: UUID
+    name: str
+    email: EmailStr
+    status: str
+    is_platform_admin: bool
+    role: str
+    profile_id: UUID | None = None
+    profile_name: str | None = None
+    entity_scope: list[str] = Field(default_factory=list)
+    enabled_resources: list[str] = Field(default_factory=list)
+
+
+class UserMembershipUpdate(BaseModel):
+    profile_id: UUID
+    entity_scope: list[str] = Field(default_factory=list)
+
+
 class TenantCreate(BaseModel):
     name: str
     slug: str
