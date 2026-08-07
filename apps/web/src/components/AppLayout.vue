@@ -21,11 +21,11 @@ const items = [
   { to: '/users', label: 'Usuários e perfis', icon: Users, resources: ['users', 'profiles'] },
   { to: '/companies', label: 'Empresas e CNPJs', icon: Landmark, resources: ['companies'] },
   { to: '/certificates', label: 'Certificados', icon: ShieldCheck, resources: ['certificates'] },
-  { to: '/plugins', label: 'Plugins', icon: PlugZap, resources: ['plugins'] },
-  { to: '/policies', label: 'Políticas', icon: GitBranch, resources: ['policies'] },
+  { to: '/plugins', label: 'Aplicativos e conectores', icon: PlugZap, resources: ['plugins'] },
+  { to: '/policies', label: 'Políticas de consulta', icon: GitBranch, resources: ['policies'] },
   { to: '/documents', label: 'Documentos', icon: Files, resources: ['documents'] },
   { to: '/nfse', label: 'NFS-e', icon: ReceiptText, resources: ['nfse'] },
-  { to: '/query', label: 'Consultar chave', icon: Search, resources: ['query'] },
+  { to: '/query', label: 'Consultas fiscais', icon: Search, resources: ['query'] },
   { to: '/jobs', label: 'Jobs e lotes', icon: ListTodo, resources: ['jobs'] },
   { to: '/api-clients', label: 'API e credenciais', icon: KeyRound, resources: ['api_clients'] },
   { to: '/webhooks', label: 'Webhooks', icon: Webhook, resources: ['webhooks'] },
@@ -78,7 +78,14 @@ const profileLabel = computed(() => {
         </div>
         <div class="topbar-spacer"></div>
         <button class="icon-button notification"><Bell :size="20" /><i></i></button>
-        <div class="profile"><div class="avatar">{{ auth.user?.name?.slice(0,1) || 'H' }}</div><div><strong>{{ auth.user?.name || 'Carregando' }}</strong><small>{{ profileLabel }}</small></div></div>
+        <RouterLink to="/profile" class="profile profile-link" title="Minha conta">
+          <div class="avatar">
+            <img v-if="auth.avatarUrl" :src="auth.avatarUrl" alt="Foto do usuário" />
+            <span v-else>{{ auth.user?.name?.slice(0,1) || 'H' }}</span>
+          </div>
+          <div><strong>{{ auth.user?.name || 'Carregando' }}</strong><small>{{ profileLabel }}</small></div>
+          <ChevronDown :size="14" />
+        </RouterLink>
       </header>
       <main class="main-content"><slot /></main>
     </div>
@@ -94,15 +101,11 @@ const profileLabel = computed(() => {
   color: #dce9fb;
 }
 .version-info strong,
-.version-info small {
-  display: block;
-}
-.version-info strong {
-  font-size: 11px;
-}
-.version-info small {
-  margin-top: 3px;
-  color: #8ca4c6;
-  font-size: 9px;
-}
+.version-info small { display: block; }
+.version-info strong { font-size: 11px; }
+.version-info small { margin-top: 3px; color: #8ca4c6; font-size: 9px; }
+.profile-link { padding: 6px 9px; border-radius: 10px; transition: .2s; }
+.profile-link:hover { background: #f3f7fd; }
+.profile .avatar { overflow: hidden; }
+.profile .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 </style>

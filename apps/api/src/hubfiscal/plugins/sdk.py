@@ -37,8 +37,19 @@ class PluginRequest:
     legal_entity_id: UUID | None
     document_type: str
     access_key: str | None
+    operation: str = "retrieve_by_key"
+    environment: str = "production"
+    parameters: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
     secrets: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class PluginDocument:
+    xml: bytes
+    schema: str | None = None
+    nsu: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -47,6 +58,7 @@ class PluginResult:
     status: PluginStatus
     access_key: str | None = None
     xml: bytes | None = None
+    documents: list[PluginDocument] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     retry_after_seconds: int | None = None
     message: str | None = None

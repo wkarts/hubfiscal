@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { api } from '../api'
 
-interface User { id: string; name: string; email: string; is_platform_admin: boolean }
+interface User { id: string; name: string; email: string; is_platform_admin: boolean; has_avatar: boolean }
 interface Tenant {
   id: string
   name: string
@@ -26,6 +26,7 @@ export const useAuthStore = defineStore('auth', {
     tenants: [] as Tenant[],
     tenantId: localStorage.getItem('hf_tenant_id') || '',
     context: null as TenantContext | null,
+    avatarUrl: '' as string,
     ready: false,
   }),
   getters: {
@@ -37,6 +38,20 @@ export const useAuthStore = defineStore('auth', {
     },
   },
   actions: {
+    clearAvatar() {
+      if (this.avatarUrl) URL.revokeObjectURL(this.avatarUrl)
+      this.avatarUrl = ''
+    },
+    async loadAvatar() {
+      this.clearAvatar()
+      if (!this.user?.has_avatar) return
+      try {
+        const response = await api.get('/profile/avatar', { responseType: 'blob' })
+        this.avatarUrl = URL.createObjectURL(response.data)
+      } catch {
+        this.avatarUrl = ''
+      }
+    },
     async login(email: string, password: string) {
       const { data } = await api.post('/auth/login', { email, password })
       localStorage.setItem('hf_access_token', data.access_token)
@@ -47,6 +62,7 @@ export const useAuthStore = defineStore('auth', {
       localStorage.removeItem('hf_access_token')
       localStorage.removeItem('hf_refresh_token')
       localStorage.removeItem('hf_tenant_id')
+      this.clearAvatar()
       this.user = null
       this.tenants = []
       this.tenantId = ''
@@ -77,7 +93,7 @@ export const useAuthStore = defineStore('auth', {
         this.tenantId = this.tenants[0].id
         localStorage.setItem('hf_tenant_id', this.tenantId)
       }
-      await this.loadContext()
+      await Promise.all([this.loadContext(), this.loadAvatar()])
       this.ready = true
     },
     async selectTenant(id: string) {
