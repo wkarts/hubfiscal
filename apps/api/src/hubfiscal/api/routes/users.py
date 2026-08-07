@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.database import get_db
-from ...core.resources import ALL_RESOURCES
+from ...core.resources import ALL_RESOURCES, DEFAULT_ACCESS_PROFILES
 from ...core.security import hash_password
 from ...dependencies import AuthContext, require_resource
 from ...models import AccessProfile, LegalEntity, Membership, User
@@ -15,6 +15,7 @@ from ...services.audit import audit
 
 router = APIRouter(prefix="/users", tags=["Usuários"])
 user_context = require_resource("users")
+LEGACY_PROFILES = {profile["key"]: profile for profile in DEFAULT_ACCESS_PROFILES}
 
 
 def _require_access_admin(context: AuthContext) -> UUID:
@@ -41,7 +42,22 @@ async def _profile_for_payload(
     return profile
 
 
-async def _validated_scope(db: AsyncSession, tenant_id: UUID, scope: list[str]) -> list[str]:
+def _assert_profile_assignable(context: AuthContext, profile: AccessProfile) -> None:
+    if context.user.is_platform_admin or "*" in context.permissions:
+        return
+    if "*" in profile.permissions:
+        raise HTTPException(status_code=403, detail="Somente o proprietário pode atribuir um perfil com controle total")
+    if "manage" in profile.permissions and "manage" not in context.permissions:
+        raise HTTPException(status_code=403, detail="O perfil selecionado possui permissões superiores às suas")
+    excessive = sorted(set(profile.enabled_resources or []) - set(context.enabled_resources))
+    if excessive:
+        raise HTTPException(
+            status_code=403,
+            detail=f"O perfil selecionado habilita recursos fora do seu acesso: {', '.join(excessive)}",
+        )
+
+
+async def _validated_scope(db: AsyncSession, tenant_id: UUID, scope: list[str], context: AuthContext) -> list[str]:
     if not scope:
         return []
     try:
@@ -52,11 +68,17 @@ async def _validated_scope(db: AsyncSession, tenant_id: UUID, scope: list[str]) 
     missing = [str(value) for value in ids if value not in found]
     if missing:
         raise HTTPException(status_code=422, detail=f"CNPJs não pertencem ao tenant: {', '.join(missing)}")
+    if context.entity_scope:
+        outside = sorted(set(str(value) for value in ids) - set(context.entity_scope))
+        if outside:
+            raise HTTPException(status_code=403, detail="Você não pode delegar acesso a CNPJs fora do seu próprio escopo")
     return [str(value) for value in ids]
 
 
 def _tenant_user(user: User, membership: Membership, profile: AccessProfile | None) -> TenantUserOut:
-    resources = list(profile.enabled_resources if profile else ALL_RESOURCES)
+    legacy = LEGACY_PROFILES.get(membership.role)
+    resources = list(profile.enabled_resources if profile else (legacy["enabled_resources"] if legacy else ALL_RESOURCES))
+    profile_name = profile.name if profile else (legacy["name"] if legacy else None)
     return TenantUserOut(
         id=user.id,
         name=user.name,
@@ -65,7 +87,7 @@ def _tenant_user(user: User, membership: Membership, profile: AccessProfile | No
         is_platform_admin=user.is_platform_admin,
         role=profile.key if profile else membership.role,
         profile_id=profile.id if profile else None,
-        profile_name=profile.name if profile else None,
+        profile_name=profile_name,
         entity_scope=list(membership.entity_scope or []),
         enabled_resources=resources,
     )
@@ -102,7 +124,8 @@ async def list_users(context: AuthContext = Depends(user_context), db: AsyncSess
 async def create_user(payload: UserCreate, context: AuthContext = Depends(user_context), db: AsyncSession = Depends(get_db)):
     tenant_id = _require_access_admin(context)
     profile = await _profile_for_payload(db, tenant_id, payload.profile_id, payload.role)
-    entity_scope = await _validated_scope(db, tenant_id, payload.entity_scope)
+    _assert_profile_assignable(context, profile)
+    entity_scope = await _validated_scope(db, tenant_id, payload.entity_scope, context)
     user = await db.scalar(select(User).where(User.email == payload.email.lower()))
     if user is None:
         user = User(name=payload.name, email=payload.email.lower(), password_hash=hash_password(payload.password))
@@ -146,7 +169,8 @@ async def update_user_membership(
     if membership is None or user is None:
         raise HTTPException(status_code=404, detail="Usuário não encontrado neste tenant")
     profile = await _profile_for_payload(db, tenant_id, payload.profile_id, membership.role)
-    entity_scope = await _validated_scope(db, tenant_id, payload.entity_scope)
+    _assert_profile_assignable(context, profile)
+    entity_scope = await _validated_scope(db, tenant_id, payload.entity_scope, context)
     membership.profile_id = profile.id
     membership.role = profile.key
     membership.permissions = list(profile.permissions)
