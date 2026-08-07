@@ -1,17 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ...dependencies import AuthContext, current_context
+from ...dependencies import AuthContext, require_resource
 from ...schemas import CompanyLookupOut
 from ...services.company_lookup import CompanyLookupError, lookup_company, normalize_tax_document, validate_cnpj
 
 router = APIRouter(prefix="/company-lookup", tags=["Consulta CNPJ"])
+company_context = require_resource("companies")
 
 
 @router.get("/{document}", response_model=CompanyLookupOut)
 async def company_lookup(
     document: str,
     providers: str | None = Query(default=None, description="Ordem opcional: brasilapi,receitaws"),
-    _: AuthContext = Depends(current_context),
+    _: AuthContext = Depends(company_context),
 ):
     normalized = normalize_tax_document(document)
     if not validate_cnpj(normalized):
