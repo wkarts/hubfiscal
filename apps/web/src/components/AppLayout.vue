@@ -34,7 +34,9 @@ const items = [
 ]
 const visibleItems = computed(() => items.filter((item) => {
   if (item.platform) return Boolean(auth.user?.is_platform_admin)
-  return !item.resource || auth.hasResource(item.resource)
+  if (!item.resource) return true
+  if (!auth.tenantId && auth.user?.is_platform_admin) return true
+  return auth.enabledResources.includes(item.resource)
 }))
 const profileLabel = computed(() => {
   if (auth.user?.is_platform_admin && !auth.tenantId) return 'Administrador da plataforma'
