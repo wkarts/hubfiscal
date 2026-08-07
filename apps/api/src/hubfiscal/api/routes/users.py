@@ -19,7 +19,7 @@ router = APIRouter(prefix="/users", tags=["Usuários"])
 def _require_access_admin(context: AuthContext) -> UUID:
     if context.tenant_id is None:
         raise HTTPException(status_code=400, detail="Selecione um tenant")
-    if not context.user.is_platform_admin and context.role not in {"tenant_owner", "tenant_admin"}:
+    if not context.user.is_platform_admin and "*" not in context.permissions and "manage" not in context.permissions:
         raise HTTPException(status_code=403, detail="Perfil sem permissão para administrar usuários")
     return context.tenant_id
 
