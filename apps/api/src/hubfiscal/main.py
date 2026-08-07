@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
-from prometheus_fastapi_instrumentator import Instrumentator
 
 from . import __version__
 from .api.router import api_router
@@ -11,6 +10,7 @@ from .bootstrap.seed import seed
 from .build_info import get_build_info
 from .core.config import get_settings
 from .core.logging import configure_logging
+from .core.metrics import install_metrics
 
 configure_logging()
 settings = get_settings()
@@ -37,7 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router)
-Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+install_metrics(app)
 
 
 @app.get("/", include_in_schema=False)
