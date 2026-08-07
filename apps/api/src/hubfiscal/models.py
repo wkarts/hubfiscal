@@ -44,7 +44,14 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), default=UserStatus.ACTIVE)
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    avatar_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    avatar_content_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     memberships: Mapped[list[Membership]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def has_avatar(self) -> bool:
+        return bool(self.avatar_storage_key)
 
 
 class Tenant(Base, TimestampMixin):
@@ -201,23 +208,71 @@ class DocumentSource(Base, TimestampMixin):
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
 
+class RetrievalBatch(Base, TimestampMixin):
+    __tablename__ = "retrieval_batches"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    legal_entity_id: Mapped[UUID | None] = mapped_column(ForeignKey("legal_entities.id", ondelete="SET NULL"), nullable=True)
+    requested_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    plugin_installation_id: Mapped[UUID | None] = mapped_column(ForeignKey("plugin_installations.id", ondelete="SET NULL"), nullable=True)
+    document_type: Mapped[str] = mapped_column(String(30), default="nfe")
+    environment: Mapped[str] = mapped_column(String(20), default="production")
+    mode: Mapped[str] = mapped_column(String(40), default="automatic_with_assisted_fallback")
+    status: Mapped[str] = mapped_column(String(40), default=JobStatus.QUEUED)
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    completed_count: Mapped[int] = mapped_column(Integer, default=0)
+    found_count: Mapped[int] = mapped_column(Integer, default=0)
+    not_found_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class RetrievalJob(Base, TimestampMixin):
     __tablename__ = "retrieval_jobs"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     legal_entity_id: Mapped[UUID | None] = mapped_column(ForeignKey("legal_entities.id", ondelete="SET NULL"), nullable=True)
     requested_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    plugin_installation_id: Mapped[UUID | None] = mapped_column(ForeignKey("plugin_installations.id", ondelete="SET NULL"), nullable=True)
+    batch_id: Mapped[UUID | None] = mapped_column(ForeignKey("retrieval_batches.id", ondelete="CASCADE"), nullable=True, index=True)
     document_type: Mapped[str] = mapped_column(String(30), default="nfe")
     access_key: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    environment: Mapped[str] = mapped_column(String(20), default="production")
+    operation: Mapped[str] = mapped_column(String(60), default="retrieve_by_key")
+    parameters: Mapped[dict] = mapped_column(JSONB, default=dict)
     mode: Mapped[str] = mapped_column(String(40), default="automatic_with_assisted_fallback")
     status: Mapped[str] = mapped_column(String(40), default=JobStatus.QUEUED)
     progress: Mapped[int] = mapped_column(Integer, default=0)
     result_document_id: Mapped[UUID | None] = mapped_column(ForeignKey("fiscal_documents.id", ondelete="SET NULL"), nullable=True)
+    result_document_ids: Mapped[list] = mapped_column(JSONB, default=list)
     attempts: Mapped[list] = mapped_column(JSONB, default=list)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     human_action: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DfeCursor(Base, TimestampMixin):
+    __tablename__ = "dfe_cursors"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "legal_entity_id",
+            "plugin_installation_id",
+            "environment",
+            name="uq_dfe_cursor_scope",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    legal_entity_id: Mapped[UUID] = mapped_column(ForeignKey("legal_entities.id", ondelete="CASCADE"), index=True)
+    plugin_installation_id: Mapped[UUID] = mapped_column(ForeignKey("plugin_installations.id", ondelete="CASCADE"), index=True)
+    environment: Mapped[str] = mapped_column(String(20), default="production")
+    last_nsu: Mapped[str] = mapped_column(String(15), default="000000000000000")
+    max_nsu: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    last_cstat: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    last_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ApiClient(Base, TimestampMixin):
