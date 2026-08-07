@@ -33,6 +33,25 @@ def _ordered_intersection(left: list[str], right: list[str]) -> list[str]:
     return [item for item in left if item in allowed]
 
 
+async def current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ausente")
+    try:
+        payload = decode_token(credentials.credentials)
+        if payload.get("principal", "user") != "user":
+            raise ValueError("principal inválido")
+        user_id = UUID(payload["sub"])
+    except (InvalidTokenError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=401, detail="Token inválido") from exc
+    user = await db.scalar(select(User).where(User.id == user_id, User.status == "active"))
+    if user is None:
+        raise HTTPException(status_code=401, detail="Usuário inválido")
+    return user
+
+
 async def current_context(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     x_tenant_id: UUID | None = Header(default=None, alias="X-Tenant-ID"),
