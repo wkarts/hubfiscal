@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     minio_access_key: str = Field(alias="MINIO_ROOT_USER")
     minio_secret_key: str = Field(alias="MINIO_ROOT_PASSWORD")
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
+    # O cofre já aplica criptografia Fernet no lado da aplicação. SSE-S3 só
+    # deve ser enviado quando o backend S3/MinIO tiver KMS/SSE configurado.
+    minio_server_side_encryption: Literal["none", "AES256"] = Field(
+        default="none",
+        alias="MINIO_SERVER_SIDE_ENCRYPTION",
+    )
 
     @property
     def cors_origins(self) -> list[str]:
