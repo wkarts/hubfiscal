@@ -21,6 +21,9 @@ celery_app.conf.update(
     enable_utc=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    broker_connection_retry_on_startup=True,
+    worker_enable_remote_control=False,
+    worker_cancel_long_running_tasks_on_connection_loss=True,
 )
 
 
@@ -30,4 +33,5 @@ def execute_retrieval_task(self, job_id: str):
         async with SessionLocal() as db:
             job = await execute_retrieval_job(db, UUID(job_id))
             return {"job_id": str(job.id), "status": job.status}
+
     return asyncio.run(run())

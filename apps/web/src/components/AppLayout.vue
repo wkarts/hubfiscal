@@ -16,23 +16,32 @@ const appVersion = __APP_VERSION__
 const buildSha = __BUILD_SHA__.slice(0, 8)
 const buildDate = __BUILD_DATE__
 const items = [
-  { to: '/', label: 'Visão geral', icon: LayoutDashboard },
-  { to: '/tenants', label: 'Clientes', icon: Building2, platform: true },
-  { to: '/users', label: 'Usuários', icon: Users },
-  { to: '/companies', label: 'Empresas e CNPJs', icon: Landmark },
-  { to: '/certificates', label: 'Certificados', icon: ShieldCheck },
-  { to: '/plugins', label: 'Plugins', icon: PlugZap },
-  { to: '/policies', label: 'Políticas', icon: GitBranch },
-  { to: '/documents', label: 'Documentos', icon: Files },
-  { to: '/nfse', label: 'NFS-e', icon: ReceiptText },
-  { to: '/query', label: 'Consultar chave', icon: Search },
-  { to: '/jobs', label: 'Jobs e lotes', icon: ListTodo },
-  { to: '/api-clients', label: 'API e credenciais', icon: KeyRound },
-  { to: '/webhooks', label: 'Webhooks', icon: Webhook },
-  { to: '/audit', label: 'Auditoria', icon: ScrollText },
-  { to: '/settings', label: 'Configurações', icon: Settings },
+  { to: '/', label: 'Visão geral', icon: LayoutDashboard, resources: ['dashboard'] },
+  { to: '/tenants', label: 'Tenants / Clientes', icon: Building2, platform: true },
+  { to: '/users', label: 'Usuários e perfis', icon: Users, resources: ['users', 'profiles'] },
+  { to: '/companies', label: 'Empresas e CNPJs', icon: Landmark, resources: ['companies'] },
+  { to: '/certificates', label: 'Certificados', icon: ShieldCheck, resources: ['certificates'] },
+  { to: '/plugins', label: 'Plugins', icon: PlugZap, resources: ['plugins'] },
+  { to: '/policies', label: 'Políticas', icon: GitBranch, resources: ['policies'] },
+  { to: '/documents', label: 'Documentos', icon: Files, resources: ['documents'] },
+  { to: '/nfse', label: 'NFS-e', icon: ReceiptText, resources: ['nfse'] },
+  { to: '/query', label: 'Consultar chave', icon: Search, resources: ['query'] },
+  { to: '/jobs', label: 'Jobs e lotes', icon: ListTodo, resources: ['jobs'] },
+  { to: '/api-clients', label: 'API e credenciais', icon: KeyRound, resources: ['api_clients'] },
+  { to: '/webhooks', label: 'Webhooks', icon: Webhook, resources: ['webhooks'] },
+  { to: '/audit', label: 'Auditoria', icon: ScrollText, resources: ['audit'] },
+  { to: '/settings', label: 'Configurações', icon: Settings, resources: ['integrations'] },
 ]
-const visibleItems = computed(() => items.filter((i) => !i.platform || auth.user?.is_platform_admin))
+const visibleItems = computed(() => items.filter((item) => {
+  if (item.platform) return Boolean(auth.user?.is_platform_admin)
+  if (!item.resources?.length) return true
+  if (!auth.tenantId && auth.user?.is_platform_admin) return true
+  return item.resources.some((resource) => auth.enabledResources.includes(resource))
+}))
+const profileLabel = computed(() => {
+  if (auth.user?.is_platform_admin && !auth.tenantId) return 'Administrador da plataforma'
+  return auth.context?.profile_name || auth.context?.role || 'Usuário fiscal'
+})
 </script>
 
 <template>
@@ -60,16 +69,16 @@ const visibleItems = computed(() => items.filter((i) => !i.platform || auth.user
       <header class="topbar">
         <button class="icon-button" @click="collapsed=!collapsed; mobile=!mobile"><Menu :size="20" /></button>
         <div class="tenant-switcher" v-if="auth.tenants.length">
-          <span>Cliente</span>
+          <span>Tenant</span>
           <select :value="auth.tenantId" @change="auth.selectTenant(($event.target as HTMLSelectElement).value)">
-            <option value="">Administração da plataforma</option>
+            <option v-if="auth.user?.is_platform_admin" value="">Administração da plataforma</option>
             <option v-for="tenant in auth.tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
           </select>
           <ChevronDown :size="16" />
         </div>
         <div class="topbar-spacer"></div>
         <button class="icon-button notification"><Bell :size="20" /><i></i></button>
-        <div class="profile"><div class="avatar">{{ auth.user?.name?.slice(0,1) || 'H' }}</div><div><strong>{{ auth.user?.name || 'Carregando' }}</strong><small>{{ auth.user?.is_platform_admin ? 'Administrador da plataforma' : 'Usuário fiscal' }}</small></div></div>
+        <div class="profile"><div class="avatar">{{ auth.user?.name?.slice(0,1) || 'H' }}</div><div><strong>{{ auth.user?.name || 'Carregando' }}</strong><small>{{ profileLabel }}</small></div></div>
       </header>
       <main class="main-content"><slot /></main>
     </div>

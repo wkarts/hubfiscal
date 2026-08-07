@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.config import get_settings
 from ...core.database import get_db
 from ...core.security import create_access_token, create_refresh_token, hash_password, verify_password
-from ...dependencies import AuthContext, current_context
+from ...dependencies import AuthContext, current_context, current_user
 from ...models import ApiClient, Membership, Tenant, User
 from ...schemas import BootstrapAdminRequest, BootstrapStatus, ClientCredentialsRequest, LoginRequest, TokenResponse, UserOut
 from ...services.audit import audit
@@ -67,15 +67,38 @@ async def client_credentials(payload: ClientCredentialsRequest, db: AsyncSession
 
 
 @router.get("/auth/tenants")
-async def my_tenants(context: AuthContext = Depends(current_context), db: AsyncSession = Depends(get_db)):
-    if context.user.is_platform_admin:
+async def my_tenants(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    if user.is_platform_admin:
         items = (await db.scalars(select(Tenant).order_by(Tenant.name))).all()
-        return [{"id": str(t.id), "name": t.name, "slug": t.slug, "type": t.type, "status": t.status} for t in items]
-    stmt = select(Tenant).join(Membership).where(Membership.user_id == context.user.id).order_by(Tenant.name)
-    items = (await db.scalars(stmt)).all()
-    return [{"id": str(t.id), "name": t.name, "slug": t.slug, "type": t.type, "status": t.status} for t in items]
+    else:
+        stmt = select(Tenant).join(Membership).where(Membership.user_id == user.id).order_by(Tenant.name)
+        items = (await db.scalars(stmt)).all()
+    return [
+        {
+            "id": str(t.id),
+            "name": t.name,
+            "slug": t.slug,
+            "type": t.type,
+            "status": t.status,
+            "settings": t.settings or {},
+        }
+        for t in items
+    ]
+
+
+@router.get("/auth/context")
+async def auth_context(context: AuthContext = Depends(current_context)):
+    return {
+        "tenant_id": str(context.tenant_id) if context.tenant_id else None,
+        "role": context.role,
+        "permissions": context.permissions,
+        "enabled_resources": context.enabled_resources,
+        "entity_scope": context.entity_scope,
+        "profile_id": str(context.profile_id) if context.profile_id else None,
+        "profile_name": context.profile_name,
+    }
 
 
 @router.get("/auth/me", response_model=UserOut)
-async def me(context: AuthContext = Depends(current_context)):
-    return context.user
+async def me(user: User = Depends(current_user)):
+    return user

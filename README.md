@@ -2,7 +2,7 @@
 
 Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para captura, armazenamento, consulta e distribuição de documentos fiscais eletrônicos.
 
-**Versão atual:** `0.2.5`
+**Versão atual:** `0.3.0`
 
 ## Stack
 
@@ -12,16 +12,56 @@ Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para capt
 - **Documentos:** S3/MinIO com hash SHA-256 e metadados no PostgreSQL.
 - **Infraestrutura:** Docker Compose, GHCR, CloudPanel, Dockge, Portainer e GitHub Actions.
 
+## Hierarquia multiempresa
+
+O Hub Fiscal separa a administração da plataforma do escopo operacional de cada tenant:
+
+```text
+PLATAFORMA
+├── TENANT / CLIENTE A
+│   ├── CNPJ principal do tenant
+│   ├── usuários e perfis configuráveis
+│   ├── CNPJ cliente / filial 1
+│   │   ├── certificados A1
+│   │   └── NF-e / NFC-e / CT-e / MDF-e / NFS-e / DF-e / XML
+│   └── CNPJ cliente / filial N
+└── TENANT / CLIENTE B
+    └── mesma estrutura isolada
+```
+
+- O tenant pode possuir um CNPJ principal.
+- Cada tenant pode gerenciar vários outros CNPJs.
+- Cada CNPJ possui sua própria lista de recursos habilitados e pode possuir vários certificados.
+- Cada usuário pertence ao tenant por uma associação com perfil configurável.
+- O perfil define recursos e permissões; o usuário pode ainda ser limitado a CNPJs específicos.
+- O preset **Completo** habilita todos os recursos por padrão e pode ser reduzido posteriormente.
+
+## Consulta e validação de CNPJ
+
+O cadastro pode consultar dados de CNPJ sob demanda usando provedores externos com fallback, inicialmente BrasilAPI e ReceitaWS. Falhas ou limites de um provedor não impedem o preenchimento manual.
+
+A validação aceita:
+
+- CNPJ numérico tradicional, com ou sem máscara;
+- CNPJ alfanumérico de 14 posições, preservando os dois dígitos verificadores numéricos;
+- CPF numérico para cadastros que ainda utilizam documento pessoal.
+
+As consultas externas são usadas apenas para enriquecimento cadastral. O CNPJ, os recursos e os dados efetivamente salvos continuam sob controle do tenant.
+
 ## Recursos implementados
 
 - Bootstrap seguro do primeiro administrador da plataforma.
 - SaaS multi-tenant com clientes, usuários, perfis e escopos por CNPJ.
-- Cadastro de CNPJs, filiais, inscrições estaduais e municipais.
+- Presets de recursos de tenant e perfis de acesso configuráveis.
+- Cadastro de CNPJ principal, clientes, filiais, inscrições estaduais e municipais.
+- Consulta multi-provider de CNPJ com fallback e preenchimento manual.
+- Suporte ao CNPJ alfanumérico e ao formato clássico.
 - Cofre de certificados A1 com criptografia e armazenamento privado.
 - Cofre fiscal para NF-e, NFC-e, CT-e, MDF-e e NFS-e.
 - Importação de XML e ZIP, deduplicação e validação estrutural.
 - SDK e catálogo de plugins com políticas de roteamento por tenant, CNPJ e documento.
 - Jobs assíncronos, retentativas, auditoria, API clients e webhooks.
+- Worker Celery compatível com RabbitMQ 4 sem depender de filas de controle transitórias depreciadas.
 - Compose de desenvolvimento e stack canônica de produção.
 - Pacotes prontos para CloudPanel, Dockge e Portainer.
 - Persistência física fora dos containers.
