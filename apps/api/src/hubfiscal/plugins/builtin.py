@@ -16,10 +16,33 @@ from ..services.storage import storage
 from .sdk import Capabilities, FiscalPlugin, PluginDocument, PluginRequest, PluginResult, PluginStatus
 
 UF_TO_CUF = {
-    "RO": "11", "AC": "12", "AM": "13", "RR": "14", "PA": "15", "AP": "16", "TO": "17",
-    "MA": "21", "PI": "22", "CE": "23", "RN": "24", "PB": "25", "PE": "26", "AL": "27", "SE": "28", "BA": "29",
-    "MG": "31", "ES": "32", "RJ": "33", "SP": "35", "PR": "41", "SC": "42", "RS": "43",
-    "MS": "50", "MT": "51", "GO": "52", "DF": "53",
+    "RO": "11",
+    "AC": "12",
+    "AM": "13",
+    "RR": "14",
+    "PA": "15",
+    "AP": "16",
+    "TO": "17",
+    "MA": "21",
+    "PI": "22",
+    "CE": "23",
+    "RN": "24",
+    "PB": "25",
+    "PE": "26",
+    "AL": "27",
+    "SE": "28",
+    "BA": "29",
+    "MG": "31",
+    "ES": "32",
+    "RJ": "33",
+    "SP": "35",
+    "PR": "41",
+    "SC": "42",
+    "RS": "43",
+    "MS": "50",
+    "MT": "51",
+    "GO": "52",
+    "DF": "53",
 }
 NFE_DISTRIBUTION_ENDPOINTS = {
     "production": "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx",
@@ -32,7 +55,17 @@ XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=F
 class RepositoryPlugin(FiscalPlugin):
     key = "repository"
     name = "Repositório fiscal"
-    capabilities = Capabilities(True, False, False, True, True, False, False, False, frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}))
+    capabilities = Capabilities(
+        True,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        False,
+        frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}),
+    )
 
     async def retrieve(self, request: PluginRequest) -> PluginResult:
         if not request.access_key:
@@ -59,7 +92,17 @@ class RepositoryPlugin(FiscalPlugin):
 class SimulatedSourcePlugin(FiscalPlugin):
     key = "simulated-source"
     name = "Fonte simulada"
-    capabilities = Capabilities(True, True, False, True, True, True, False, False, frozenset({"nfe", "nfse"}))
+    capabilities = Capabilities(
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        False,
+        False,
+        frozenset({"nfe", "nfse"}),
+    )
 
     async def retrieve(self, request: PluginRequest) -> PluginResult:
         if not request.config.get("enabled_for_demo", False):
@@ -76,7 +119,17 @@ class SimulatedSourcePlugin(FiscalPlugin):
 class GenericHttpXmlPlugin(FiscalPlugin):
     key = "generic-http-xml"
     name = "API HTTP genérica de XML"
-    capabilities = Capabilities(True, True, False, True, True, False, False, False, frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}))
+    capabilities = Capabilities(
+        True,
+        True,
+        False,
+        True,
+        True,
+        False,
+        False,
+        False,
+        frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}),
+    )
 
     async def healthcheck(self, config: dict, secrets: dict) -> tuple[bool, str]:
         url = config.get("healthcheck_url") or config.get("url")
@@ -90,7 +143,7 @@ class GenericHttpXmlPlugin(FiscalPlugin):
             return False, str(exc)
 
     def _headers(self, config: dict, secrets: dict) -> dict[str, str]:
-        headers = {str(k): str(v) for k, v in config.get("headers", {}).items()}
+        headers = {str(key): str(value) for key, value in config.get("headers", {}).items()}
         token = secrets.get("token") or secrets.get("api_key")
         if token:
             header_name = config.get("auth_header", "Authorization")
@@ -101,13 +154,18 @@ class GenericHttpXmlPlugin(FiscalPlugin):
     async def retrieve(self, request: PluginRequest) -> PluginResult:
         url = request.config.get("url")
         if not url:
-            return PluginResult(self.key, PluginStatus.PERMANENT_FAILURE, request.access_key, message="URL não configurada")
+            return PluginResult(
+                self.key,
+                PluginStatus.PERMANENT_FAILURE,
+                request.access_key,
+                message="URL não configurada",
+            )
         method = str(request.config.get("method", "POST")).upper()
         payload_key = request.config.get("access_key_field", "chave")
         url = url.replace("{access_key}", request.access_key or "")
         try:
             async with httpx.AsyncClient(timeout=float(request.config.get("timeout", 30))) as client:
-                kwargs = {"headers": self._headers(request.config, request.secrets)}
+                kwargs: dict = {"headers": self._headers(request.config, request.secrets)}
                 if method in {"POST", "PUT", "PATCH"}:
                     kwargs["json"] = {
                         payload_key: request.access_key,
@@ -120,7 +178,12 @@ class GenericHttpXmlPlugin(FiscalPlugin):
             if response.status_code == 404:
                 return PluginResult(self.key, PluginStatus.NOT_FOUND, request.access_key)
             if response.status_code == 429:
-                return PluginResult(self.key, PluginStatus.RATE_LIMITED, request.access_key, retry_after_seconds=60)
+                return PluginResult(
+                    self.key,
+                    PluginStatus.RATE_LIMITED,
+                    request.access_key,
+                    retry_after_seconds=60,
+                )
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
             if "xml" in content_type or response.content.lstrip().startswith(b"<"):
@@ -132,11 +195,27 @@ class GenericHttpXmlPlugin(FiscalPlugin):
                 value = value[part]
             encoding = request.config.get("xml_encoding", "base64")
             xml = base64.b64decode(value) if encoding == "base64" else str(value).encode()
-            return PluginResult(self.key, PluginStatus.FOUND, request.access_key, xml=xml, metadata={"http_status": response.status_code})
+            return PluginResult(
+                self.key,
+                PluginStatus.FOUND,
+                request.access_key,
+                xml=xml,
+                metadata={"http_status": response.status_code},
+            )
         except httpx.TimeoutException:
-            return PluginResult(self.key, PluginStatus.TEMPORARY_FAILURE, request.access_key, message="Timeout")
+            return PluginResult(
+                self.key,
+                PluginStatus.TEMPORARY_FAILURE,
+                request.access_key,
+                message="Timeout",
+            )
         except Exception as exc:
-            return PluginResult(self.key, PluginStatus.TEMPORARY_FAILURE, request.access_key, message=str(exc))
+            return PluginResult(
+                self.key,
+                PluginStatus.TEMPORARY_FAILURE,
+                request.access_key,
+                message=str(exc),
+            )
 
 
 class ConsultaDanfePlugin(GenericHttpXmlPlugin):
@@ -148,7 +227,17 @@ class NFeDistributionPlugin(FiscalPlugin):
     key = "nfe-distribution"
     name = "Distribuição DF-e NF-e"
     version = "2.0.0"
-    capabilities = Capabilities(True, True, False, True, True, True, True, False, frozenset({"nfe", "nfce"}))
+    capabilities = Capabilities(
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        True,
+        False,
+        frozenset({"nfe", "nfce"}),
+    )
 
     async def healthcheck(self, config: dict, secrets: dict) -> tuple[bool, str]:
         certificate_id = config.get("certificate_id")
@@ -160,7 +249,13 @@ class NFeDistributionPlugin(FiscalPlugin):
 
     def _endpoint(self, config: dict, environment: str) -> str:
         override = config.get(f"{environment}_url") or config.get("url")
-        return str(override or NFE_DISTRIBUTION_ENDPOINTS.get(environment, NFE_DISTRIBUTION_ENDPOINTS["production"]))
+        return str(
+            override
+            or NFE_DISTRIBUTION_ENDPOINTS.get(
+                environment,
+                NFE_DISTRIBUTION_ENDPOINTS["production"],
+            )
+        )
 
     async def _actor(self, request: PluginRequest) -> tuple[LegalEntity, str]:
         if request.legal_entity_id is None:
@@ -186,9 +281,7 @@ class NFeDistributionPlugin(FiscalPlugin):
 
     def _payload(self, *, entity: LegalEntity, cuf: str, request: PluginRequest) -> bytes:
         tp_amb = "1" if request.environment == "production" else "2"
-        operation = request.operation
-        if operation == "retrieve_by_key":
-            operation = "consChNFe"
+        operation = "consChNFe" if request.operation == "retrieve_by_key" else request.operation
         if operation == "consChNFe":
             if not request.access_key or len(request.access_key) != 44:
                 raise ValueError("consChNFe exige chave NF-e com 44 dígitos")
@@ -217,8 +310,8 @@ class NFeDistributionPlugin(FiscalPlugin):
             '<soap12:Body>'
             '<nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">'
             f"<nfeDadosMsg>{inner}</nfeDadosMsg>"
-            '</nfeDistDFeInteresse>'
-            '</soap12:Body></soap12:Envelope>'
+            "</nfeDistDFeInteresse>"
+            "</soap12:Body></soap12:Envelope>"
         )
         return envelope.encode("utf-8")
 
@@ -230,9 +323,18 @@ class NFeDistributionPlugin(FiscalPlugin):
             faults = root.xpath("//*[local-name()='Text']/text() | //*[local-name()='faultstring']/text()")
             if faults:
                 message = str(faults[0])
-            return PluginResult(self.key, PluginStatus.TEMPORARY_FAILURE, access_key, message=message)
+            return PluginResult(
+                self.key,
+                PluginStatus.TEMPORARY_FAILURE,
+                access_key,
+                message=message,
+            )
         ret = ret_nodes[0]
-        text = lambda name: next((str(value) for value in ret.xpath(f"./*[local-name()='{name}']/text()")), None)
+
+        def text(name: str) -> str | None:
+            values = ret.xpath(f"./*[local-name()='{name}']/text()")
+            return str(values[0]) if values else None
+
         cstat = text("cStat")
         motivo = text("xMotivo")
         ult_nsu = text("ultNSU")
@@ -251,7 +353,10 @@ class NFeDistributionPlugin(FiscalPlugin):
                     xml=xml,
                     schema=node.attrib.get("schema"),
                     nsu=node.attrib.get("NSU"),
-                    metadata={"schema": node.attrib.get("schema"), "nsu": node.attrib.get("NSU")},
+                    metadata={
+                        "schema": node.attrib.get("schema"),
+                        "nsu": node.attrib.get("NSU"),
+                    },
                 )
             )
         metadata = {
@@ -262,14 +367,46 @@ class NFeDistributionPlugin(FiscalPlugin):
             "documents_returned": len(documents),
         }
         if documents:
-            return PluginResult(self.key, PluginStatus.FOUND, access_key, documents=documents, metadata=metadata, message=motivo)
+            return PluginResult(
+                self.key,
+                PluginStatus.FOUND,
+                access_key,
+                documents=documents,
+                metadata=metadata,
+                message=motivo,
+            )
         if cstat == "137":
-            return PluginResult(self.key, PluginStatus.NOT_FOUND, access_key, metadata=metadata, message=motivo)
+            return PluginResult(
+                self.key,
+                PluginStatus.NOT_FOUND,
+                access_key,
+                metadata=metadata,
+                message=motivo,
+            )
         if cstat == "656":
-            return PluginResult(self.key, PluginStatus.RATE_LIMITED, access_key, metadata=metadata, retry_after_seconds=3600, message=motivo)
+            return PluginResult(
+                self.key,
+                PluginStatus.RATE_LIMITED,
+                access_key,
+                metadata=metadata,
+                retry_after_seconds=3600,
+                message=motivo,
+            )
         if cstat in {"138", "140"}:
-            return PluginResult(self.key, PluginStatus.NOT_FOUND, access_key, metadata=metadata, message=motivo)
-        return PluginResult(self.key, PluginStatus.TEMPORARY_FAILURE, access_key, metadata=metadata, message=motivo or f"cStat {cstat}")
+            return PluginResult(
+                self.key,
+                PluginStatus.NOT_FOUND,
+                access_key,
+                metadata=metadata,
+                message=motivo,
+            )
+        return PluginResult(
+            self.key,
+            PluginStatus.TEMPORARY_FAILURE,
+            access_key,
+            metadata=metadata,
+            message=motivo or f"cStat {cstat}",
+        )
 
     async def retrieve(self, request: PluginRequest) -> PluginResult:
         try:
@@ -294,40 +431,106 @@ class NFeDistributionPlugin(FiscalPlugin):
                     response = await client.post(endpoint, content=payload, headers=headers)
                 response.raise_for_status()
                 result = self._parse_response(response.content, request.access_key)
-                result.metadata.update({"environment": request.environment, "endpoint": endpoint, "operation": request.operation})
+                result.metadata.update(
+                    {
+                        "environment": request.environment,
+                        "endpoint": endpoint,
+                        "operation": request.operation,
+                    }
+                )
                 return result
         except (ValueError, CertificateMaterialError) as exc:
-            return PluginResult(self.key, PluginStatus.PERMANENT_FAILURE, request.access_key, message=str(exc))
+            return PluginResult(
+                self.key,
+                PluginStatus.PERMANENT_FAILURE,
+                request.access_key,
+                message=str(exc),
+            )
         except httpx.TimeoutException:
-            return PluginResult(self.key, PluginStatus.TEMPORARY_FAILURE, request.access_key, message="Timeout no Ambiente Nacional")
+            return PluginResult(
+                self.key,
+                PluginStatus.TEMPORARY_FAILURE,
+                request.access_key,
+                message="Timeout no Ambiente Nacional",
+            )
         except httpx.HTTPStatusError as exc:
-            return PluginResult(self.key, PluginStatus.TEMPORARY_FAILURE, request.access_key, message=f"Ambiente Nacional HTTP {exc.response.status_code}")
+            return PluginResult(
+                self.key,
+                PluginStatus.TEMPORARY_FAILURE,
+                request.access_key,
+                message=f"Ambiente Nacional HTTP {exc.response.status_code}",
+            )
         except Exception as exc:
-            return PluginResult(self.key, PluginStatus.TEMPORARY_FAILURE, request.access_key, message=str(exc))
+            return PluginResult(
+                self.key,
+                PluginStatus.TEMPORARY_FAILURE,
+                request.access_key,
+                message=str(exc),
+            )
 
 
 class NfseNationalPlugin(GenericHttpXmlPlugin):
     key = "nfse-national"
     name = "NFS-e Padrão Nacional"
-    capabilities = Capabilities(True, True, False, True, True, True, True, False, frozenset({"nfse"}))
+    capabilities = Capabilities(
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        True,
+        False,
+        frozenset({"nfse"}),
+    )
 
 
 class WebIssPlugin(GenericHttpXmlPlugin):
     key = "webiss"
     name = "WebISS / NFS-e Municipal"
-    capabilities = Capabilities(True, True, False, True, True, True, False, False, frozenset({"nfse"}))
+    capabilities = Capabilities(
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        False,
+        False,
+        frozenset({"nfse"}),
+    )
 
 
 class MailboxPlugin(GenericHttpXmlPlugin):
     key = "fiscal-mailbox"
     name = "Caixa de e-mail fiscal"
-    capabilities = Capabilities(True, True, False, True, False, True, False, False, frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}))
+    capabilities = Capabilities(
+        True,
+        True,
+        False,
+        True,
+        False,
+        True,
+        False,
+        False,
+        frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}),
+    )
 
 
 class PortalAssistedPlugin(FiscalPlugin):
     key = "portal-assisted"
     name = "Portal assistido"
-    capabilities = Capabilities(False, True, True, False, True, False, True, True, frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}))
+    capabilities = Capabilities(
+        False,
+        True,
+        True,
+        False,
+        True,
+        False,
+        True,
+        True,
+        frozenset({"nfe", "nfce", "cte", "mdfe", "nfse"}),
+    )
 
     async def retrieve(self, request: PluginRequest) -> PluginResult:
         return PluginResult(
