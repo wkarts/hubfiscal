@@ -5,7 +5,7 @@ from celery import Celery
 
 from .core.config import get_settings
 from .core.database import SessionLocal
-from .services.orchestrator import execute_retrieval_job
+from .services.orchestrator import execute_retrieval_job, mark_job_failed
 
 settings = get_settings()
 celery_app = Celery(
@@ -37,8 +37,6 @@ celery_app.conf.update(
 @celery_app.task(
     name="hubfiscal.execute_retrieval",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
     max_retries=3,
 )
 def execute_retrieval_task(self, job_id: str):
@@ -47,4 +45,16 @@ def execute_retrieval_task(self, job_id: str):
             job = await execute_retrieval_job(db, UUID(job_id))
             return {"job_id": str(job.id), "status": job.status}
 
-    return asyncio.run(run())
+    try:
+        return asyncio.run(run())
+    except Exception as exc:
+        if self.request.retries < self.max_retries:
+            countdown = min(60, 2 ** (self.request.retries + 1))
+            raise self.retry(exc=exc, countdown=countdown)
+
+        async def fail():
+            async with SessionLocal() as db:
+                await mark_job_failed(db, UUID(job_id), str(exc))
+
+        asyncio.run(fail())
+        raise
