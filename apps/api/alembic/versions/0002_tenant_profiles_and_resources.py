@@ -4,8 +4,10 @@ Revision ID: 0002
 Revises: 0001
 """
 
-from alembic import op
+import json
+
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0002"
@@ -18,6 +20,7 @@ ALL_RESOURCES = [
     "nfe", "nfce", "cte", "mdfe", "nfse", "dfe", "plugins", "policies", "jobs",
     "integrations", "api_clients", "webhooks", "reports", "audit",
 ]
+ALL_RESOURCES_DEFAULT = sa.text("'" + json.dumps(ALL_RESOURCES) + "'::jsonb")
 
 
 def upgrade() -> None:
@@ -53,12 +56,7 @@ def upgrade() -> None:
     op.add_column("legal_entities", sa.Column("is_primary", sa.Boolean(), nullable=False, server_default=sa.text("false")))
     op.add_column(
         "legal_entities",
-        sa.Column(
-            "enabled_resources",
-            postgresql.JSONB(),
-            nullable=False,
-            server_default=sa.text("'" + __import__("json").dumps(ALL_RESOURCES) + "'::jsonb"),
-        ),
+        sa.Column("enabled_resources", postgresql.JSONB(), nullable=False, server_default=ALL_RESOURCES_DEFAULT),
     )
 
 
