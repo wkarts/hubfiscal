@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
 
 from . import __version__
 from .api.router import api_router
@@ -26,7 +25,6 @@ app = FastAPI(
     title="Hub Fiscal API",
     description="Plataforma fiscal multiempresa orientada a plugins",
     version=__version__,
-    default_response_class=ORJSONResponse,
     lifespan=lifespan,
 )
 app.add_middleware(
