@@ -149,6 +149,71 @@ jobs:
           alembic upgrade head
           alembic current
 
+  object-storage:
+    runs-on: ubuntu-24.04
+    env:
+      HUBFISCAL_SECRET_KEY: ci-secret-key-ci-secret-key-ci-secret-key-ci-secret-key-1234567890
+      HUBFISCAL_ENCRYPTION_KEY: Q2ZsTG1SS0ttZXJ0cmljLWh1YmZpc2NhbC1rZXk9ISE=
+      HUBFISCAL_BOOTSTRAP_TOKEN: bootstrap-ci
+      DATABASE_URL: postgresql+asyncpg://hubfiscal:hubfiscal-ci@127.0.0.1:5432/hubfiscal_ci
+      DATABASE_URL_SYNC: postgresql+psycopg://hubfiscal:hubfiscal-ci@127.0.0.1:5432/hubfiscal_ci
+      REDIS_URL: redis://127.0.0.1:6379/0
+      CELERY_BROKER_URL: memory://
+      CELERY_RESULT_BACKEND: cache+memory://
+      MINIO_ENDPOINT: http://127.0.0.1:9000
+      MINIO_ROOT_USER: hubfiscal
+      MINIO_ROOT_PASSWORD: hubfiscal-ci-secret
+      MINIO_BUCKET: hubfiscal-documents
+      MINIO_REGION: sa-east-1
+      MINIO_SECURE: 'false'
+      MINIO_SERVER_SIDE_ENCRYPTION: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install -e apps/api
+      - name: Subir MinIO sem KMS
+        run: |
+          docker run -d --name hubfiscal-minio-ci \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=hubfiscal \
+            -e MINIO_ROOT_PASSWORD=hubfiscal-ci-secret \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z \
+            server /data
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs hubfiscal-minio-ci
+          exit 1
+      - name: Gravar certificado criptografado sem SSE-S3 obrigatório
+        run: |
+          python - <<'PY'
+          import asyncio
+          from hubfiscal.core.security import decrypt_secret, encrypt_secret
+          from hubfiscal.services.storage import ObjectStorage
+
+          async def main():
+              storage = ObjectStorage()
+              encrypted = encrypt_secret(b"pkcs12-ci")
+              key = "tenant/ci/certificates/smoke.pfx.enc"
+              await storage.put(key, encrypted, "application/octet-stream")
+              stored = await storage.get(key)
+              assert decrypt_secret(stored) == b"pkcs12-ci"
+              await storage.delete(key)
+
+          asyncio.run(main())
+          PY
+      - name: Logs MinIO
+        if: always()
+        run: |
+          docker logs hubfiscal-minio-ci || true
+          docker rm -f hubfiscal-minio-ci || true
+
   rabbitmq-celery:
     runs-on: ubuntu-24.04
     services:
@@ -159,6 +224,7 @@ jobs:
           RABBITMQ_DEFAULT_PASS: hubfiscal-ci
         ports:
           - 5672:5672
+          - 15672:15672
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 5s
@@ -184,7 +250,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --upgrade pip setuptools wheel
       - run: python -m pip install -e apps/api
-      - name: Manter worker conectado ao RabbitMQ 4 sem filas transitórias depreciadas
+      - name: Manter worker conectado ao RabbitMQ 4 com quorum queue
         shell: bash
         run: |
           set -euo pipefail
@@ -207,8 +273,18 @@ jobs:
           fi
           cat /tmp/hubfiscal-celery.log
           grep -q "Connected to amqp" /tmp/hubfiscal-celery.log
-          if grep -Eq "transient_nonexcl_queues|RestartFreqExceeded|Connection to broker lost" /tmp/hubfiscal-celery.log; then
-            echo "Celery/RabbitMQ 4 apresentou regressão de filas transitórias ou reconexão." >&2
+          grep -q "hubfiscal-tasks" /tmp/hubfiscal-celery.log
+          curl -fsS -u hubfiscal:hubfiscal-ci \
+            http://127.0.0.1:15672/api/queues/%2F/hubfiscal-tasks \
+            >/tmp/hubfiscal-queue.json
+          python - <<'PY'
+          import json
+          queue = json.load(open('/tmp/hubfiscal-queue.json', encoding='utf-8'))
+          assert queue['name'] == 'hubfiscal-tasks'
+          assert queue['type'] == 'quorum', queue
+          PY
+          if grep -Eq "transient_nonexcl_queues|global_qos|RestartFreqExceeded|Connection to broker lost" /tmp/hubfiscal-celery.log; then
+            echo "Celery/RabbitMQ 4 apresentou regressão de QoS, filas transitórias ou reconexão." >&2
             exit 1
           fi
 
