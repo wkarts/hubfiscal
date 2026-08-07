@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -88,7 +90,12 @@ async def create_tenant(payload: TenantCreate, context: AuthContext = Depends(re
             },
         )
         db.add(entity)
-        tenant.settings = {**tenant.settings, "primary_document": document, "primary_legal_entity_id": str(entity.id)}
+        await db.flush()
+        tenant.settings = {
+            **tenant.settings,
+            "primary_document": document,
+            "primary_legal_entity_id": str(entity.id),
+        }
 
     db.add(PluginInstallation(tenant_id=tenant.id, plugin_key="repository", name="Repositório principal", priority=10, config={}))
     db.add(PluginInstallation(tenant_id=tenant.id, plugin_key="simulated-source", name="Fonte de demonstração", priority=900, config={"enabled_for_demo": False}))
@@ -138,7 +145,7 @@ async def create_tenant(payload: TenantCreate, context: AuthContext = Depends(re
 
 @router.patch("/{tenant_id}/resources", response_model=TenantOut)
 async def update_tenant_resources(
-    tenant_id: str,
+    tenant_id: UUID,
     payload: TenantResourcesUpdate,
     context: AuthContext = Depends(require_platform_admin),
     db: AsyncSession = Depends(get_db),
