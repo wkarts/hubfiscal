@@ -2,7 +2,7 @@
 
 Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para captura, armazenamento, consulta e distribuição de documentos fiscais eletrônicos.
 
-**Versão atual:** `0.2.4`
+**Versão atual:** `0.2.5`
 
 ## Stack
 
@@ -28,6 +28,7 @@ Plataforma SaaS fiscal multiempresa, Docker-first, orientada a plugins para capt
 - Migration one-shot antes da API.
 - Versionamento SemVer centralizado.
 - GitHub Release com artefatos, checksums, SBOM e imagens multi-arquitetura.
+- Métricas Prometheus nativas em `/metrics`, desacopladas do roteamento interno do FastAPI.
 
 ## Desenvolvimento local
 
