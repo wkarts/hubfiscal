@@ -1,4 +1,3 @@
-from io import BytesIO
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -15,14 +14,27 @@ from ...services.storage import storage
 from ...services.xml import extract_xml_files, parse_xml
 
 router = APIRouter(prefix="/documents", tags=["Documentos fiscais"])
+DOCUMENT_TYPE_RESOURCES = {"nfe", "nfce", "cte", "mdfe", "nfse", "dfe"}
 
 
-async def _document_entity_ids(db: AsyncSession, context: AuthContext) -> list[UUID]:
+def _require_document_access(context: AuthContext, document_type: str | None = None) -> None:
+    if "documents" in context.enabled_resources:
+        return
+    if document_type and document_type in DOCUMENT_TYPE_RESOURCES and document_type in context.enabled_resources:
+        return
+    raise HTTPException(status_code=403, detail="Recurso documental não habilitado para este perfil")
+
+
+async def _document_entity_ids(db: AsyncSession, context: AuthContext, document_type: str | None) -> list[UUID]:
     if context.tenant_id is None:
         return []
+    entity_resource = document_type if document_type in DOCUMENT_TYPE_RESOURCES else "documents"
     stmt = select(LegalEntity.id).where(
         LegalEntity.tenant_id == context.tenant_id,
-        LegalEntity.enabled_resources.contains(["documents"]),
+        or_(
+            LegalEntity.enabled_resources.contains(["documents"]),
+            LegalEntity.enabled_resources.contains([entity_resource]),
+        ),
     )
     if context.entity_scope:
         try:
@@ -38,6 +50,7 @@ async def _validate_document_entity(
     legal_entity_id: UUID | None,
     *,
     allow_unassigned: bool,
+    document_type: str | None = None,
 ) -> LegalEntity | None:
     if legal_entity_id is None:
         if context.entity_scope or not allow_unassigned:
@@ -53,8 +66,10 @@ async def _validate_document_entity(
         raise HTTPException(status_code=422, detail="CNPJ não pertence ao tenant")
     if context.entity_scope and str(entity.id) not in context.entity_scope:
         raise HTTPException(status_code=403, detail="Usuário não possui acesso ao CNPJ informado")
-    if "documents" not in (entity.enabled_resources or []):
-        raise HTTPException(status_code=403, detail="Recurso Documentos/XML não habilitado para este CNPJ")
+    entity_resources = set(entity.enabled_resources or [])
+    required = document_type if document_type in DOCUMENT_TYPE_RESOURCES else "documents"
+    if "documents" not in entity_resources and required not in entity_resources:
+        raise HTTPException(status_code=403, detail=f"Recurso {required} não habilitado para este CNPJ")
     return entity
 
 
@@ -69,7 +84,8 @@ async def list_documents(
 ):
     if context.tenant_id is None:
         return []
-    entity_ids = await _document_entity_ids(db, context)
+    _require_document_access(context, document_type)
+    entity_ids = await _document_entity_ids(db, context, document_type)
     stmt = select(FiscalDocument).where(FiscalDocument.tenant_id == context.tenant_id)
     if context.entity_scope:
         if not entity_ids:
@@ -94,7 +110,9 @@ async def import_documents(
 ):
     if context.tenant_id is None:
         raise HTTPException(status_code=400, detail="Selecione um tenant")
-    await _validate_document_entity(db, context, legal_entity_id, allow_unassigned=True)
+    if "documents" not in context.enabled_resources:
+        raise HTTPException(status_code=403, detail="Recurso Documentos/XML não habilitado para importação")
+    await _validate_document_entity(db, context, legal_entity_id, allow_unassigned=True, document_type=None)
     data = await file.read()
     try:
         files = extract_xml_files(data, file.filename or "upload.xml")
@@ -129,7 +147,14 @@ async def download(document_id: UUID, context: AuthContext = Depends(current_con
     )
     if doc is None or not doc.storage_key:
         raise HTTPException(status_code=404, detail="XML não encontrado")
-    await _validate_document_entity(db, context, doc.legal_entity_id, allow_unassigned=not bool(context.entity_scope))
+    _require_document_access(context, doc.document_type)
+    await _validate_document_entity(
+        db,
+        context,
+        doc.legal_entity_id,
+        allow_unassigned=not bool(context.entity_scope),
+        document_type=doc.document_type,
+    )
     return Response(
         content=await storage.get(doc.storage_key),
         media_type="application/xml",
