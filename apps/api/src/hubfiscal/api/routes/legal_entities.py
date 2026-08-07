@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.database import get_db
 from ...core.resources import ALL_RESOURCES
-from ...dependencies import AuthContext, current_context
+from ...dependencies import AuthContext, require_resource
 from ...models import LegalEntity
 from ...schemas import LegalEntityCreate, LegalEntityOut, LegalEntityUpdateResources
 from ...services.audit import audit
@@ -19,6 +19,7 @@ from ...services.company_lookup import (
 )
 
 router = APIRouter(prefix="/legal-entities", tags=["Empresas e CNPJs"])
+company_context = require_resource("companies")
 
 
 def _validate_resources(resources: list[str]) -> list[str]:
@@ -29,7 +30,7 @@ def _validate_resources(resources: list[str]) -> list[str]:
 
 
 @router.get("", response_model=list[LegalEntityOut])
-async def list_entities(context: AuthContext = Depends(current_context), db: AsyncSession = Depends(get_db)):
+async def list_entities(context: AuthContext = Depends(company_context), db: AsyncSession = Depends(get_db)):
     if context.tenant_id is None:
         return []
     stmt = select(LegalEntity).where(LegalEntity.tenant_id == context.tenant_id).order_by(LegalEntity.is_primary.desc(), LegalEntity.legal_name)
@@ -43,7 +44,7 @@ async def list_entities(context: AuthContext = Depends(current_context), db: Asy
 
 
 @router.post("", response_model=LegalEntityOut, status_code=201)
-async def create_entity(payload: LegalEntityCreate, context: AuthContext = Depends(current_context), db: AsyncSession = Depends(get_db)):
+async def create_entity(payload: LegalEntityCreate, context: AuthContext = Depends(company_context), db: AsyncSession = Depends(get_db)):
     if context.tenant_id is None:
         raise HTTPException(status_code=400, detail="Selecione um tenant")
 
@@ -102,11 +103,13 @@ async def create_entity(payload: LegalEntityCreate, context: AuthContext = Depen
 async def update_entity_resources(
     entity_id: UUID,
     payload: LegalEntityUpdateResources,
-    context: AuthContext = Depends(current_context),
+    context: AuthContext = Depends(company_context),
     db: AsyncSession = Depends(get_db),
 ):
     if context.tenant_id is None:
         raise HTTPException(status_code=400, detail="Selecione um tenant")
+    if not context.user.is_platform_admin and "*" not in context.permissions and "manage" not in context.permissions:
+        raise HTTPException(status_code=403, detail="Perfil sem permissão para alterar recursos da empresa")
     entity = await db.scalar(select(LegalEntity).where(LegalEntity.id == entity_id, LegalEntity.tenant_id == context.tenant_id))
     if entity is None:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
