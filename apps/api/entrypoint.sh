@@ -46,7 +46,9 @@ case "$MODE" in
     wait_db
     exec celery -A hubfiscal.worker.celery_app worker \
       --loglevel="${HUBFISCAL_LOG_LEVEL:-INFO}" \
-      --concurrency="${CELERY_CONCURRENCY:-2}"
+      --concurrency="${CELERY_CONCURRENCY:-2}" \
+      --without-mingle \
+      --without-gossip
     ;;
   beat)
     wait_db
