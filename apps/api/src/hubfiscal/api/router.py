@@ -33,7 +33,8 @@ api_router.include_router(legal_entities.router)
 api_router.include_router(certificates.router)
 api_router.include_router(plugins.router, dependencies=[Depends(require_resource("plugins"))])
 api_router.include_router(policies.router, dependencies=[Depends(require_resource("policies"))])
-api_router.include_router(documents.router, dependencies=[Depends(require_resource("documents"))])
+# Documentos aplica internamente `documents` ou o recurso fiscal específico (nfe/cte/nfse/etc.).
+api_router.include_router(documents.router)
 api_router.include_router(jobs.router)
 api_router.include_router(api_clients.router, dependencies=[Depends(require_resource("api_clients"))])
 # Integrações usam credenciais OAuth/client-credentials e escopos próprios; não herdam o contexto de usuário.
